@@ -1,5 +1,5 @@
 {
-  "name": "neural-memory",
+  "name": "@drakonkat/neural-memory",
   "version": "1.0.2",
   "description": "MCP Server for AI Agent Memory - Neural network-like memory system with keyword-based search",
   "main": "src/index.js",

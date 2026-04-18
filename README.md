@@ -8,6 +8,7 @@ Server MCP per dare memoria persistente e organizzata agli agenti AI.
 ## 🎯 Concetto
 
 Questo server MCP implementa un sistema di memoria neurale per agenti AI:
+
 - **Locale**: Nessun cloud, tutto su SQLite
 - **Gerarchico**: Nodi organizzati ad albero
 - **Keyword-based**: Ricerca con ranking per probabilità
@@ -16,11 +17,13 @@ Questo server MCP implementa un sistema di memoria neurale per agenti AI:
 ## 📦 Installazione
 
 ### Da npm (dopo pubblicazione):
+
 ```bash
 npm install neural-memory
 ```
 
 ### Da GitHub (in sviluppo):
+
 ```bash
 git clone https://github.com/Drakonkat/neural-memory.git
 cd neural-memory
@@ -28,6 +31,7 @@ npm install
 ```
 
 ### Dipendenze:
+
 - Node.js >= 18
 - npm
 
@@ -52,28 +56,32 @@ npm test
 ## 🔧 Tool Disponibili
 
 ### MVP (Step 1)
-| Tool | Descrizione |
-|------|-------------|
-| `initialize_project` | Crea un nuovo progetto di memoria |
-| `add_node` | Aggiunge un nodo con keywords |
-| `search_nodes` | Cerca nodi per keywords con ranking |
+
+| Tool                 | Descrizione                         |
+|----------------------|-------------------------------------|
+| `initialize_project` | Crea un nuovo progetto di memoria   |
+| `add_node`           | Aggiunge un nodo con keywords       |
+| `search_nodes`       | Cerca nodi per keywords con ranking |
 
 ### Navigazione (Step 2)
-| Tool | Descrizione |
-|------|-------------|
-| `get_node_context` | Ottieni contesto gerarchico di un nodo |
-| `get_project_stats` | Statistiche del progetto |
+
+| Tool                | Descrizione                            |
+|---------------------|----------------------------------------|
+| `get_node_context`  | Ottieni contesto gerarchico di un nodo |
+| `get_project_stats` | Statistiche del progetto               |
 
 ### Linking (Step 3)
-| Tool | Descrizione |
-|------|-------------|
-| `link_nodes` | Crea collegamenti tra nodi |
-| `suggest_nodes` | Suggerisce nodi rilevanti |
+
+| Tool            | Descrizione                |
+|-----------------|----------------------------|
+| `link_nodes`    | Crea collegamenti tra nodi |
+| `suggest_nodes` | Suggerisce nodi rilevanti  |
 
 ### Management (Step 4)
-| Tool | Descrizione |
-|------|-------------|
-| `update_node` | Aggiorna un nodo |
+
+| Tool          | Descrizione                   |
+|---------------|-------------------------------|
+| `update_node` | Aggiorna un nodo              |
 | `delete_node` | Elimina un nodo (con cascade) |
 
 ## 📁 Struttura
@@ -145,11 +153,13 @@ confidence = BM25(0.4) + keyword_match(0.3) + recency(0.15) + type(0.1) + weight
 ### Opzione 1: Installazione Globale npm (Consigliato)
 
 1. **Pubblica il pacchetto su npm** (o installa da GitHub):
+
 ```bash
 npm publish
 ```
 
 2. **Installa globalmente**:
+
 ```bash
 npm install -g @drakonkat/neural-memory
 ```
@@ -157,6 +167,7 @@ npm install -g @drakonkat/neural-memory
 3. **Configura nel tuo editor**:
 
 **Cline** (`~/.cline/settings/cline_mcp_settings.json`):
+
 ```json
 "neural-memory": {
   "timeout": 120,
@@ -170,6 +181,7 @@ npm install -g @drakonkat/neural-memory
 ```
 
 **VS Code / Cursor** (`settings.json`):
+
 ```json
 {
   "mcpServers": {
@@ -184,6 +196,7 @@ npm install -g @drakonkat/neural-memory
 ### Opzione 2: Installazione Locale (Sviluppo)
 
 1. **Clona il repository**:
+
 ```bash
 git clone https://github.com/Drakonkat/neural-memory.git
 cd neural-memory
@@ -193,6 +206,7 @@ npm install
 2. **Configura nel tuo editor**:
 
 **Cline**:
+
 ```json
 "neural-memory": {
   "timeout": 120,
@@ -206,6 +220,7 @@ npm install
 ```
 
 **VS Code / Cursor**:
+
 ```json
 {
   "mcpServers": {
@@ -241,6 +256,7 @@ npm install
 ### Dipendenze npm (installate automaticamente)
 
 Le dipendenze vengono installate automaticamente con `npm install`:
+
 - `@modelcontextprotocol/sdk` - SDK MCP
 - `sequelize` - ORM per SQLite
 - `sqlite3` - Driver SQLite
@@ -255,6 +271,7 @@ npm rebuild sqlite3
 ```
 
 Su Windows potresti aver bisogno di:
+
 ```bash
 npm install --global-windows-build-tools
 npm rebuild sqlite3
@@ -294,8 +311,8 @@ await callTool('add_node', {
 ## 📂 Pubblicazione su GitHub
 
 1. **Crea repo** su https://github.com/new
-   - Nome: `neural-memory`
-   - Privato o pubblico a scelta
+    - Nome: `neural-memory`
+    - Privato o pubblico a scelta
 
 2. **Inizializza git**:
    ```bash
