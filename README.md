@@ -140,34 +140,124 @@ confidence = BM25(0.4) + keyword_match(0.3) + recency(0.15) + type(0.1) + weight
 - **type**: Bonus per tipo 'task'
 - **weight**: Peso manuale impostato
 
-## 🔧 Configurazione Cline
+## 🔧 Configurazione MCP con Node.js
 
-Aggiungi al file `~/.cline/settings/cline_mcp_settings.json`:
+### Opzione 1: Installazione Globale npm (Consigliato)
 
+1. **Pubblica il pacchetto su npm** (o installa da GitHub):
+```bash
+npm publish
+```
+
+2. **Installa globalmente**:
+```bash
+npm install -g @drakonkat/neural-memory
+```
+
+3. **Configura nel tuo editor**:
+
+**Cline** (`~/.cline/settings/cline_mcp_settings.json`):
 ```json
 "neural-memory": {
   "timeout": 120,
   "type": "stdio",
   "command": "node",
   "args": [
-    "node_modules/neural-memory/src/index.js"
+    "C:\\Users\\mauro\\AppData\\Roaming\\npm\\node_modules\\neural-memory\\src\\index.js"
   ],
   "autoApprove": []
 }
 ```
 
-### Per altri editor (VS Code, Cursor, etc.):
-
+**VS Code / Cursor** (`settings.json`):
 ```json
-// settings.json
 {
   "mcpServers": {
     "neural-memory": {
       "command": "node",
-      "args": ["path/to/neural-memory/src/index.js"]
+      "args": ["C:\\Users\\mauro\\AppData\\Roaming\\npm\\node_modules\\neural-memory\\src\\index.js"]
     }
   }
 }
+```
+
+### Opzione 2: Installazione Locale (Sviluppo)
+
+1. **Clona il repository**:
+```bash
+git clone https://github.com/Drakonkat/neural-memory.git
+cd neural-memory
+npm install
+```
+
+2. **Configura nel tuo editor**:
+
+**Cline**:
+```json
+"neural-memory": {
+  "timeout": 120,
+  "type": "stdio",
+  "command": "node",
+  "args": [
+    "C:\\path\\to\\neural-memory\\src\\index.js"
+  ],
+  "autoApprove": []
+}
+```
+
+**VS Code / Cursor**:
+```json
+{
+  "mcpServers": {
+    "neural-memory": {
+      "command": "node",
+      "args": ["C:\\path\\to\\neural-memory\\src\\index.js"]
+    }
+  }
+}
+```
+
+### Opzione 3: Usa npx (Senza installazione)
+
+```json
+"neural-memory": {
+  "timeout": 120,
+  "type": "stdio",
+  "command": "npx",
+  "args": [
+    "@drakonkat/neural-memory"
+  ],
+  "autoApprove": []
+}
+```
+
+---
+
+## 📋 Requisiti di Sistema
+
+- **Node.js**: >= 18.0.0
+- **npm**: >= 9.0.0 (incluso con Node.js)
+
+### Dipendenze npm (installate automaticamente)
+
+Le dipendenze vengono installate automaticamente con `npm install`:
+- `@modelcontextprotocol/sdk` - SDK MCP
+- `sequelize` - ORM per SQLite
+- `sqlite3` - Driver SQLite
+- `uuid` - Generazione UUID
+
+### Build nativo sqlite3 (se necessario)
+
+Se ricevi errori relativi a `sqlite3`, potrebbe essere necessario ricompilare il modulo nativo:
+
+```bash
+npm rebuild sqlite3
+```
+
+Su Windows potresti aver bisogno di:
+```bash
+npm install --global-windows-build-tools
+npm rebuild sqlite3
 ```
 
 ## 🤖 Integrazione LLM
