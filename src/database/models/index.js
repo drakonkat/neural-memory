@@ -3,9 +3,9 @@
  * Esporta tutti i modelli - DB separati, NO foreign keys
  */
 
-const ProjectModel = require('./Project');
-const NodeModel = require('./Node');
-const LinkModel = require('./Link');
+import ProjectModel from './Project.js';
+import NodeModel from './Node.js';
+import LinkModel from './Link.js';
 
 /**
  * Inizializza tutti i modelli con Sequelize
@@ -23,4 +23,4 @@ function initModels(sequelize) {
   return { Project, Node, Link };
 }
 
-module.exports = { initModels };
+export { initModels };

@@ -3,9 +3,9 @@
  * Rappresenta collegamenti tra nodi (gerarchia + riferimenti)
  */
 
-const { DataTypes } = require('sequelize');
+import { DataTypes } from "sequelize";
 
-module.exports = (sequelize) => {
+export default (sequelize) => {
   return sequelize.define('Link', {
     id: {
       type: DataTypes.UUID,

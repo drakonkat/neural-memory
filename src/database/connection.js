@@ -3,13 +3,16 @@
  * Gestisce connessioni Sequelize per ogni progetto (1 DB per progetto)
  */
 
-const { Sequelize } = require('sequelize');
-const path = require('path');
-const fs = require('fs');
+import { Sequelize } from 'sequelize';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 const connections = new Map();
 
 // Directory per i database
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, '../../data');
 
 /**
@@ -91,7 +94,7 @@ function getConnectedProjects() {
   return Array.from(connections.keys());
 }
 
-module.exports = {
+export {
   getConnection,
   closeConnection,
   closeAllConnections,

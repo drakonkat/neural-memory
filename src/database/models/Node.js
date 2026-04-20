@@ -3,9 +3,9 @@
  * Rappresenta un nodo di memoria nella rete neurale
  */
 
-const { DataTypes } = require('sequelize');
+import { DataTypes } from "sequelize";
 
-module.exports = (sequelize) => {
+export default (sequelize) => {
   return sequelize.define('Node', {
     id: {
       type: DataTypes.UUID,

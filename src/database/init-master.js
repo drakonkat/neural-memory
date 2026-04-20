@@ -3,11 +3,14 @@
  * Crea il database master che tiene traccia di tutti i progetti
  */
 
-const { Sequelize } = require('sequelize');
-const path = require('path');
-const fs = require('fs');
+import { Sequelize } from 'sequelize';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 // Database master path
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const MASTER_DB_PATH = path.join(__dirname, '../../data/master.sqlite');
 
 let masterSequelize = null;
@@ -91,7 +94,7 @@ async function closeMasterDb() {
   }
 }
 
-module.exports = {
+export {
   initMasterDb,
   getMasterDb,
   closeMasterDb,

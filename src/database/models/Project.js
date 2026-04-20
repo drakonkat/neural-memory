@@ -3,9 +3,9 @@
  * Rappresenta un progetto con la propria memoria
  */
 
-const { DataTypes } = require('sequelize');
+import { DataTypes } from "sequelize";
 
-module.exports = (sequelize) => {
+export default (sequelize) => {
   return sequelize.define('Project', {
     id: {
       type: DataTypes.UUID,

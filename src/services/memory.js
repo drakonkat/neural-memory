@@ -3,10 +3,10 @@
  * Logica di business per la gestione della memoria neurale
  */
 
-const { v4: uuidv4 } = require('uuid');
-const { getConnection, initDataDir } = require('../database/connection');
-const { initMasterDb, getMasterDb } = require('../database/init-master');
-const { initModels } = require('../database/models');
+import { v4 as uuidv4 } from 'uuid';
+import { getConnection, initDataDir } from '../database/connection.js';
+import { initMasterDb, getMasterDb } from '../database/init-master.js';
+import { initModels } from '../database/models/index.js';
 
 class MemoryService {
   constructor() {
@@ -633,4 +633,4 @@ class MemoryService {
   }
 }
 
-module.exports = new MemoryService();
+export default new MemoryService();
