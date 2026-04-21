@@ -7,11 +7,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerAllTools } from "./tools/index.js";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 
-// Crea istanza server con nuovo pattern
+// Leggi versione da package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+
+// Crea istanza server con versione da package.json
 const server = new McpServer({
   name: "neural-memory",
-  version: "1.0.0",
+  version: packageJson.version,
 });
 
 // Registra tutti i tool
