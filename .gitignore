@@ -22,6 +22,9 @@ npm-debug.log*
 .env
 .env.local
 
+# Neural Memory local IDs
+.neural-memory-id
+
 # Build
 dist/
 build/

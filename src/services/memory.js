@@ -8,12 +8,77 @@ import {getConnection, initDataDir} from '../database/connection.js';
 import {initMasterDb, getMasterDb} from '../database/init-master.js';
 import {initModels} from '../database/models/index.js';
 import {runMigrations} from '../database/migrator.js';
+import {writeLocalProjectId, readLocalProjectId, getProjectIdFromPath} from './project-helper.js';
 
 class MemoryService {
     constructor() {
         // Cache dei modelli per progetto
         this.modelsCache = new Map();
         this.masterInitialized = false;
+    }
+
+    /**
+     * Ottiene project_id dato un path, con auto-creazione file locale
+     * @param {string} projectPath - Percorso del progetto
+     * @param {boolean} autoCreate - Se creare il progetto se non esiste
+     * @returns {Promise<string|null>}
+     */
+    async resolveProjectId(projectPath, autoCreate = false) {
+        await this.ensureMasterDb();
+        const masterModels = await this.getModels('master');
+        return await getProjectIdFromPath(projectPath, masterModels);
+    }
+
+    /**
+     * Ottiene o crea un progetto, scrivendo anche il file .neural-memory-id
+     * @param {string} name - Nome del progetto
+     * @param {string} projectPath - Percorso del progetto
+     * @param {string} description - Descrizione opzionale
+     * @returns {Object} Risultato con project_id, name, is_new
+     */
+    async getOrCreateProject(name, projectPath, description = '') {
+        initDataDir();
+        await this.ensureMasterDb();
+        const masterModels = await this.getModels('master');
+        const {Project} = masterModels;
+
+        // Cerca progetto esistente per path
+        let project = await Project.findOne({where: {path: projectPath}});
+        let isNew = false;
+
+        if (!project) {
+            // Crea nuovo progetto
+            project = await Project.create({
+                name,
+                path: projectPath,
+                description
+            });
+            isNew = true;
+
+            // Inizializza DB per il progetto
+            const {Node} = await this.getModels(project.id);
+            await runMigrations(getConnection(project.id));
+
+            // Crea nodo radice
+            await Node.create({
+                projectId: project.id,
+                type: 'root',
+                keywords: [name.toLowerCase()],
+                content: `Project root for ${name}`,
+                depth: 0
+            });
+        }
+
+        // Scrivi sempre il file locale (sovrascrive per sicurezza)
+        writeLocalProjectId(projectPath, project.id);
+
+        return {
+            project_id: project.id,
+            project_name: project.name,
+            path: project.path,
+            is_new: isNew,
+            success: true
+        };
     }
 
     /**
@@ -271,8 +336,19 @@ class MemoryService {
         const bm25 = ftsMap.get(node.id) || 0;
         const normalizedBm25 = Math.max(0, Math.min(0.4, -bm25 / 10));
 
-        // 2. Keyword match (0-0.3)
-        const matchedKeywords = (node.keywords || []).filter(k =>
+        // 2. Keyword match (0-0.3) - gestisce sia array che JSON string
+        let keywords = node.keywords;
+        if (typeof keywords === 'string') {
+            try {
+                keywords = JSON.parse(keywords);
+            } catch (e) {
+                keywords = [];
+            }
+        }
+        if (!Array.isArray(keywords)) {
+            keywords = [];
+        }
+        const matchedKeywords = (keywords).filter(k =>
             searchKeywords.some(sk =>
                 k.toLowerCase().includes(sk.toLowerCase()) ||
                 sk.toLowerCase().includes(k.toLowerCase())
