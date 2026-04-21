@@ -7,6 +7,7 @@ import {v4 as uuidv4} from 'uuid';
 import {getConnection, initDataDir} from '../database/connection.js';
 import {initMasterDb, getMasterDb} from '../database/init-master.js';
 import {initModels} from '../database/models/index.js';
+import {runMigrations} from '../database/migrator.js';
 
 class MemoryService {
     constructor() {
@@ -38,66 +39,13 @@ class MemoryService {
         const sequelize = getConnection(projectId);
         const models = initModels(sequelize);
 
-        // Sync database per assicurare che le tabelle esistano
-        // NOTA: Non usiamo force:true perché distruggerebbe le virtual tables FTS5!
-        await sequelize.sync();
+        // Esegue migration automatiche per creare tabelle mancanti
+        // SENZA cancellare dati esistenti!
+        await runMigrations(sequelize);
 
         this.modelsCache.set(projectId, models);
 
-        // Assicura che la tabella FTS5 esista
-        await this.ensureFTS5(projectId);
-
         return models;
-    }
-
-    /**
-     * Assicura che la tabella FTS5 esista per il progetto
-     * Verifica l'esistenza prima di creare per evitare errori
-     * @param {string} projectId
-     */
-    async ensureFTS5(projectId) {
-        const sequelize = getConnection(projectId);
-
-        try {
-            // Verifica se la tabella FTS5 esiste già
-            // @ts-ignore - Query SQLite specifica
-            const [results] = await sequelize.query(`
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='nodes_fts'
-      `);
-
-            if (!results || results.length === 0) {
-                // Tabella non esiste, creala
-                await this.createFTS5(projectId);
-            }
-        } catch (error) {
-            // Se qualcosa va storto, prova a creare comunque
-            console.error('Error checking FTS5 existence:', error);
-            try {
-                await this.createFTS5(projectId);
-            } catch (createError) {
-                console.error('Error creating FTS5 table:', createError);
-            }
-        }
-    }
-
-    /**
-     * Crea la tabella FTS5 per un progetto
-     * @param {string} projectId
-     */
-    async createFTS5(projectId) {
-        const sequelize = getConnection(projectId);
-
-        // Crea virtual table FTS5 (SQLite specifico)
-        // @ts-ignore - FTS5 non è supportato nativamente da Sequelize
-        await sequelize.query(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
-        node_id UNINDEXED,
-        keywords,
-        content,
-        content_rowid='rowid'
-      )
-    `);
     }
 
     /**
@@ -144,9 +92,7 @@ class MemoryService {
             depth: 0
         });
 
-        // Inizializza FTS5
-        await this.createFTS5(project.id);
-
+        // Le tabelle vengono create automaticamente dalle migration
         return {
             project_id: project.id,
             name: project.name,

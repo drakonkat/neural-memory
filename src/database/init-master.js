@@ -67,8 +67,9 @@ async function initMasterDb() {
     underscored: true
   });
 
-  // Sync database (force: true per ricreare tabelle)
-  await masterSequelize.sync({ force: true });
+  // Sync database - NO force:true per preservare dati esistenti
+  // Le tabelle vengono create/aggiornate tramite migration system
+  await masterSequelize.sync();
 
   return { sequelize: masterSequelize, Project };
 }
