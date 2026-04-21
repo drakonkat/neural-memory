@@ -50,6 +50,11 @@ Save to memory in these situations:
 | `concept` | Architectural decisions | "microservices", "caching" |
 | `action` | Single operations | "deploy", "migrate", "test" |
 | `summary` | Overall summaries | "project-setup", "phase-1" |
+| **`error`** | Errori ricorrenti che hai risolto | "ENOENT", "database", "nodejs" |
+| **`operation`** | Come fare X (how-to) | "database", "migration", "sql" |
+| **`convention`** | Regole di naming/stile | "camelCase", "javascript", "naming" |
+| **`edge_case`** | Casi limite scoperti | "null", "validation", "boundary" |
+| **`pattern`** | Pattern architetturali | "repository", "singleton", "factory" |
 
 ### Hierarchy Levels
 
@@ -131,6 +136,76 @@ add_node({
     path: "utils/dateFormatter.js",
     exports: ["formatDate", "formatRelative", "toTimezone"]
   }
+})
+```
+
+### 🐛 Registrare un Errore Risolto
+
+```javascript
+add_error({
+  project_id: "current-project-id",
+  error_code: "E001",
+  error_message: "Cannot read property 'map' of undefined",
+  solution: "Added null check with optional chaining: data?.map() instead of data.map()",
+  keywords: ["nodejs", "undefined", "map", "javascript"],
+  context: "Succede quando il dataset non è ancora caricato",
+  weight: 2.0
+})
+```
+
+### 📋 Registrare un'Operazione (How-To)
+
+```javascript
+add_operation({
+  project_id: "current-project-id",
+  operation_name: "Aggiungere campo a tabella esistente",
+  steps: [
+    "Crea nuovo file migration: npx sequelize migration:create --name add_column",
+    "Definisci l'up(): sequelize.addColumn('users', 'avatar', 'STRING')",
+    "Definisci il down() per rollback",
+    "Esegui: npx sequelize db:migrate"
+  ],
+  prerequisites: ["Database Sequelize configurato", "Modello esistente"],
+  notes: "Non dimenticare di aggiornare il modello TypeScript!",
+  keywords: ["database", "migration", "sequelize", "sql"]
+})
+```
+
+### 📏 Registrare una Convenzione di Stile
+
+```javascript
+add_convention({
+  project_id: "current-project-id",
+  convention_name: "Naming CamelCase per JS",
+  rule: "Tutte le variabili e funzioni JS usano camelCase. Le costanti globali sono SCREAMING_SNAKE_CASE.",
+  applies_to: ["variabili javascript", "nomi funzioni", "nomi metodi"],
+  examples: ["userName ✓", "user_name ✗", "MAX_RETRIES ✓"],
+  keywords: ["javascript", "naming", "codestyle", "convention"]
+})
+```
+
+### ⚠️ Registrare un Edge Case
+
+```javascript
+add_edge_case({
+  project_id: "current-project-id",
+  scenario: "Valore null in campo obbligatorio con default undefined",
+  behavior: "Il database accetta NULL invece di fallire con validation error",
+  workaround: "Usa allowNull: false nel modello Sequelize + validates in Hook",
+  keywords: ["null", "validation", "sequelize", "database"]
+})
+```
+
+### 🏗️ Registrare un Pattern Architetturale
+
+```javascript
+add_pattern({
+  project_id: "current-project-id",
+  pattern_name: "Repository Pattern",
+  description: "Astrazione tra il domain model e il data access layer. Tutti gli accessi DB passano per un Repository.",
+  use_case: "Quando hai bisogno di testare la logica di business senza toccare il database reale.",
+  implementation: "Crea interface Repository con metodi CRUD. Implementa SequelizeRepository che la estende.",
+  keywords: ["architecture", "repository", "pattern", "clean-code", "ddd"]
 })
 ```
 

@@ -332,11 +332,11 @@ class MemoryService {
     calculateConfidence(node, searchKeywords, ftsMap) {
         let score = 0;
 
-        // 1. BM25 score normalizzato (0-0.4)
+        // 1. BM25 score normalizzato (0-0.35)
         const bm25 = ftsMap.get(node.id) || 0;
-        const normalizedBm25 = Math.max(0, Math.min(0.4, -bm25 / 10));
+        const normalizedBm25 = Math.max(0, Math.min(0.35, -bm25 / 10));
 
-        // 2. Keyword match (0-0.3) - gestisce sia array che JSON string
+        // 2. Keyword match (0-0.25)
         let keywords = node.keywords;
         if (typeof keywords === 'string') {
             try {
@@ -355,20 +355,34 @@ class MemoryService {
             )
         ).length;
         const keywordScore = searchKeywords.length > 0
-            ? (matchedKeywords / searchKeywords.length) * 0.3
+            ? (matchedKeywords / searchKeywords.length) * 0.25
             : 0;
 
-        // 3. Recency bonus (0-0.15)
+        // 3. Recency bonus (0-0.10)
         const ageInDays = (Date.now() - new Date(node.created_at)) / (1000 * 60 * 60 * 24);
-        const recencyScore = ageInDays < 1 ? 0.15 :
-            ageInDays < 7 ? 0.10 :
+        const recencyScore = ageInDays < 1 ? 0.10 :
+            ageInDays < 7 ? 0.08 :
                 ageInDays < 30 ? 0.05 : 0;
 
-        // 4. Type bonus (0-0.1)
-        const typeScore = node.type === 'task' ? 0.1 : 0.05;
+        // 4. Type bonus rafforzato per categorie semantiche (0-0.15)
+        const typeScores = {
+            'error': 0.15,        // Errori sono importanti!
+            'operation': 0.14,     // How-to molto utili
+            'convention': 0.13,    // Convenzioni sempre utili
+            'edge_case': 0.12,     // Edge cases preziosi
+            'pattern': 0.11,       // Pattern architetturali
+            'task': 0.10,
+            'action': 0.09,
+            'entity': 0.07,
+            'file': 0.06,
+            'concept': 0.06,
+            'summary': 0.05,
+            'generic': 0.04
+        };
+        const typeScore = typeScores[node.type] || 0.05;
 
-        // 5. Weight manuale (0-0.05)
-        const weightScore = Math.min(0.05, (node.weight || 1.0) * 0.01);
+        // 5. Weight manuale (0-0.15)
+        const weightScore = Math.min(0.15, (node.weight || 1.0) * 0.03);
 
         return Math.min(1.0, normalizedBm25 + keywordScore + recencyScore + typeScore + weightScore);
     }
