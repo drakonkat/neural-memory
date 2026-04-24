@@ -10,6 +10,7 @@
  */
 
 import memoryService from '../services/memory.js';
+import { z } from 'zod';
 
 /**
  * Tool: start_session
@@ -24,9 +25,9 @@ async function startSession({ name, description, tags, projectPath, initialConte
       projectPath: projectPath || null,
       initialContext: initialContext || {}
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -37,9 +38,9 @@ async function startSession({ name, description, tags, projectPath, initialConte
 async function resumeSession({ sessionId }) {
   try {
     const result = await memoryService.resumeSession(sessionId);
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -50,9 +51,9 @@ async function resumeSession({ sessionId }) {
 async function endSession({ sessionId }) {
   try {
     const result = await memoryService.endSession(sessionId);
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -68,9 +69,9 @@ async function listSessions({ limit, includeEnded, tags, projectPath }) {
       tags: tags || [],
       projectPath: projectPath || null
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -89,9 +90,9 @@ async function addNode({ sessionId, keywords, content, type, parentId, metadata,
       metadata: metadata || {},
       weight: weight || 1.0
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -108,9 +109,9 @@ async function searchNodes({ keywords, maxResults, minConfidence, type, sessionI
       type: type || null,
       sessionId: sessionId || null
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -124,9 +125,9 @@ async function getNodeContext({ nodeId, depth }) {
       nodeId,
       depth: depth || 1
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -142,9 +143,9 @@ async function linkNodes({ fromNodeId, toNodeId, linkType, weight }) {
       linkType: linkType || 'related',
       weight: weight || 1.0
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -161,9 +162,9 @@ async function updateNode({ nodeId, keywords, content, metadata, weight }) {
       metadata,
       weight
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -177,9 +178,9 @@ async function deleteNode({ nodeId, cascade }) {
       nodeId,
       cascade: cascade || false
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -191,7 +192,7 @@ async function deleteNode({ nodeId, cascade }) {
  * - name: nome della skill
  * - framework: framework (es. "fastify", "react", "prisma")
  * - language: linguaggio (es. "javascript", "typescript", "python")
- * - filePattern: pattern file (es. "*.service.js", "**/*.controller.ts")
+ * - filePattern: pattern file (es. "*.service.js", "**\/*.controller.ts")
  * - learnSteps: array di passi per imparare la skill
  * - useCases: array di casi d'uso
  * - implementation: implementazione dettagliata (opzionale)
@@ -214,9 +215,9 @@ async function registerSkill({ name, framework, language, filePattern, learnStep
       keywords: keywords || [],
       content: content || ''
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -231,9 +232,9 @@ async function applySkill({ keywords, context, domain }) {
       context: context || '',
       domain: domain || null
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -248,9 +249,9 @@ async function suggestSkills({ currentKeywords, maxResults, domain }) {
       maxResults: maxResults || 5,
       domain: domain || null
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -270,9 +271,9 @@ async function saveContextSnapshot({ sessionId, summary, workDone, pendingTasks,
       learnings: learnings || [],
       nextSteps: nextSteps || []
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -283,9 +284,9 @@ async function saveContextSnapshot({ sessionId, summary, workDone, pendingTasks,
 async function restoreContext({ snapshotId }) {
   try {
     const result = await memoryService.restoreContext(snapshotId);
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -296,9 +297,9 @@ async function restoreContext({ snapshotId }) {
 async function generateSessionSummary({ sessionId }) {
   try {
     const result = await memoryService.generateSessionSummary(sessionId);
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -319,12 +320,12 @@ async function getMemoryReport({ format, sessions, keywords, includeStats, inclu
 
     // Se il formato è HTML, restituisci come text
     if (format === 'html' && typeof result === 'string') {
-      return { success: true, content: [{ type: 'text', text: result }] };
+      return { content: [{ type: 'text', text: result }] };
     }
 
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -338,9 +339,9 @@ async function suggestNodes({ currentKeywords, maxResults }) {
       currentKeywords: currentKeywords || [],
       maxResults: maxResults || 5
     });
-    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
-    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
   }
 }
 
@@ -641,3 +642,82 @@ export const toolDefinitions = [
     }
   }
 ];
+
+/**
+ * Registra tutti i tool su un server McpServer
+ * @param {McpServer} server - Istanza del server MCP
+ * @returns {Array} Lista dei tool registrati
+ */
+export function registerAllTools(server) {
+  const registeredTools = [];
+
+  for (const tool of toolDefinitions) {
+    const zodShape = convertJsonSchemaToZodShape(tool.inputSchema);
+
+    server.tool(tool.name, tool.description, zodShape, async (args) => {
+      try {
+        const handler = toolHandlers[tool.name];
+        if (!handler) {
+          return { content: [{ type: "text", text: `Handler not found for tool: ${tool.name}` }], isError: true };
+        }
+        return await handler(args);
+      } catch (error) {
+        return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
+      }
+    });
+
+    registeredTools.push({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    });
+  }
+
+  return registeredTools;
+}
+
+/**
+ * Helper: converte un JSON schema molto semplice in una shape Zod (oggetto di schemi)
+ */
+function convertJsonSchemaToZodShape(schema) {
+  if (!schema || !schema.properties) {
+    return {};
+  }
+
+  const shape = {};
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    let zType;
+    switch (prop.type) {
+      case 'string':
+        zType = z.string();
+        if (prop.enum) zType = z.enum(prop.enum);
+        break;
+      case 'number':
+        zType = z.number();
+        break;
+      case 'boolean':
+        zType = z.boolean();
+        break;
+      case 'array':
+        zType = z.array(prop.items?.type === 'string' ? z.string() : z.any());
+        break;
+      case 'object':
+        zType = z.record(z.any());
+        break;
+      default:
+        zType = z.any();
+    }
+
+    if (prop.description) {
+      zType = zType.describe(prop.description);
+    }
+
+    if (schema.required && schema.required.includes(key)) {
+      shape[key] = zType;
+    } else {
+      shape[key] = zType.optional();
+    }
+  }
+
+  return shape;
+}

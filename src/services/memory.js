@@ -241,12 +241,13 @@ class MemoryService {
      * @param {Object} params
      * @returns {Array}
      */
-    async listSessions({
-        limit = 20,
-        includeEnded = false,
-        tags = [],
-        projectPath = null
-    }) {
+    async listSessions(params = {}) {
+        const {
+            limit = 20,
+            includeEnded = false,
+            tags = [],
+            projectPath = null
+        } = params;
         await this.ensureInitialized();
         const { Session } = await this.getModels();
 
@@ -347,6 +348,7 @@ class MemoryService {
             depth: node.depth,
             session_id: node.sessionId,
             keywords_count: keywords.length,
+            metadata: node.metadata,
             success: true
         };
     }
@@ -381,7 +383,11 @@ class MemoryService {
         const session = await Session.findByPk(sessionId);
         if (!session) return;
 
-        const stats = { ...session.stats };
+        // Gestisce sia plain object che Sequelize instance
+        const sessionStats = session.stats;
+        const stats = (sessionStats && typeof sessionStats === 'object') 
+            ? { ...sessionStats } 
+            : {};
 
         if (updates.increment === 'nodesCreated') {
             stats.nodesCreated = (stats.nodesCreated || 0) + 1;
@@ -452,10 +458,11 @@ class MemoryService {
 
         const scoredNodes = nodes.map(node => {
             const confidence = this.calculateConfidence(node, keywords, ftsMap);
+            const nodeKeywords = this.parseKeywords(node.keywords);
             return {
                 node_id: node.id,
                 type: node.type,
-                keywords: node.keywords,
+                keywords: nodeKeywords,
                 content: node.content,
                 depth: node.depth,
                 session_id: node.sessionId,
@@ -1154,7 +1161,12 @@ class MemoryService {
                 minConfidence: 0.1,
                 type: 'skill'
             });
-            report.top_skills = skills;
+            report.top_skills = skills.map(s => ({
+                type: s.type,
+                keywords: s.keywords,
+                confidence: s.confidence,
+                node_id: s.node_id
+            }));
         }
 
         if (includeRecentWork) {
@@ -1165,7 +1177,7 @@ class MemoryService {
             report.recent_work = recentNodes.map(n => ({
                 id: n.id,
                 type: n.type,
-                keywords: n.keywords,
+                keywords: this.parseKeywords(n.keywords),
                 session_id: n.sessionId,
                 created_at: n.created_at
             }));
@@ -1252,7 +1264,7 @@ class MemoryService {
         ${(report.top_skills || []).map(s => `
             <li class="node-item">
                 <span class="node-type type-${s.type}">${s.type}</span>
-                <strong>${s.keywords?.[0] || 'Unknown'}</strong>
+                <strong>${s.keywords && s.keywords[0] ? s.keywords[0] : 'Unknown'}</strong>
                 <div class="keywords">
                     ${(s.keywords || []).slice(0, 5).map(k => `<span class="keyword-tag">${k}</span>`).join('')}
                 </div>

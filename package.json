@@ -7,7 +7,10 @@
   "scripts": {
     "test": "node test/test-migration.js",
     "test:manual": "node test/test-manual.js",
-    "start": "node src/index.js"
+    "test:mcp": "node test/test-mcp.js",
+    "start": "node src/index.js",
+    "inspect": "cross-env DANGEROUSLY_OMIT_AUTH=true CLIENT_PORT=5689 SERVER_PORT=8512 npx @modelcontextprotocol/inspector node src/index.js",
+    "inspect-publish": "npx @modelcontextprotocol/inspector npx @drakonkat/neural-memory"
   },
   "keywords": [
     "mcp",
@@ -20,9 +23,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "cross-env": "^10.1.0",
     "sequelize": "^6.35.0",
     "sqlite3": "^5.1.6",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "zod": "^3.25.76"
   },
   "engines": {
     "node": ">=18.0.0"

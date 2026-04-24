@@ -33,7 +33,7 @@ Vuoi provarlo subito nel tuo Cline? Aggiungi questa configurazione al tuo `cline
       "type": "stdio",
       "command": "node",
       "args": [
-        "E:/Project/TND/magic/neural-memory/src/index.js"
+        "./neural-memory/src/index.js"
       ]
     }
   }

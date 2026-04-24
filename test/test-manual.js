@@ -211,32 +211,36 @@ async function testDirect() {
 
         // Test 15: save_context_snapshot (NUOVO v2.0!)
         log('\n📸 Test 15: save_context_snapshot (NUOVO v2.0)', 'yellow');
-        const snapshot = await memoryService.saveContextSnapshot(
-            session.session_id,
-            {
-                files: ['src/index.js', 'src/services/memory.js'],
-                currentTask: 'Testing Neural Memory v2.0',
-                environment: { node: 'v20.0.0', os: 'Windows' }
-            }
-        );
+        const snapshot = await memoryService.saveContextSnapshot({
+            sessionId: session.session_id,
+            summary: 'Testing Neural Memory v2.0',
+            workDone: { files: ['src/index.js', 'src/services/memory.js'] },
+            pendingTasks: ['Fix tests', 'Add documentation'],
+            blockers: [],
+            learnings: ['Session management works'],
+            nextSteps: ['Deploy', 'Monitor']
+        });
         log(`✓ Snapshot salvato: ${snapshot.snapshot_id}`, 'green');
-        log(`  Files: ${snapshot.context.files.length}`, 'reset');
+        log(`  Summary: ${snapshot.summary}`, 'reset');
 
-        // Test 16: generate_session_summary (NUOVO v2.0!)
-        log('\n📋 Test 16: generate_session_summary (NUOVO v2.0)', 'yellow');
-        const summary = await memoryService.generateSessionSummary(session.session_id);
+        // Test 19: generate_session_summary (NUOVO v2.0!)
+        log('\n📋 Test 19: generate_session_summary (NUOVO v2.0)', 'yellow');
+        const sessionSummary = await memoryService.generateSessionSummary(session.session_id);
         log(`✓ Summary generato`, 'green');
-        log(`  Nodes: ${summary.total_nodes}`, 'reset');
-        log(`  Types: ${Object.keys(summary.types).join(', ')}`, 'reset');
+        log(`  Nodes: ${sessionSummary.node_count}`, 'reset');
+        log(`  Types: ${sessionSummary.types_summary.map(t => t.type).join(', ')}`, 'reset');
 
-        // Test 17: get_memory_report (NUOVO v2.0!)
-        log('\n📊 Test 17: get_memory_report (NUOVO v2.0)', 'yellow');
-        const report = await memoryService.getMemoryReport(session.session_id);
-        log(`✓ Report HTML generato (${report.html.length} chars)`, 'green');
-        log(`  Title: ${report.title}`, 'reset');
+        // Test 20: get_memory_report (NUOVO v2.0!)
+        log('\n📊 Test 20: get_memory_report (NUOVO v2.0)', 'yellow');
+        const report = await memoryService.getMemoryReport({
+            format: 'html',
+            sessions: [session.session_id]
+        });
+        log(`✓ Report HTML generato (${report.length} chars)`, 'green');
+        log(`  Report starts with: ${report.substring(0, 50)}...`, 'reset');
 
-        // Test 18: Verifica confidence scoring (Skills/Errors = ALTA priorità)
-        log('\n🎯 Test 18: verify_confidence_scoring', 'yellow');
+        // Test 21: Verifica confidence scoring (Skills/Errors = ALTA priorità)
+        log('\n🎯 Test 21: verify_confidence_scoring', 'yellow');
         const prioritySearch = await memoryService.searchNodes({
             sessionId: session.session_id,
             keywords: ['error', 'ENOENT'],

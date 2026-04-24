@@ -1,81 +1,52 @@
+#!/usr/bin/env node
 /**
  * Neural Memory MCP Server v2.0
- * Entry point principale del server MCP
+ * Server MCP per memoria persistente e organizzata per agenti AI
  * 
  * CAMBIAMENTI v2.0:
- * - Session Management integrato
- * - Skills Framework
+ * - Session Management integrato (no più project-based)
+ * - Skills Framework con schema rigido
  * - Context Compression
  * - Reports HTML
+ * - Database Unificato
  */
 
-import { toolHandlers, toolDefinitions } from './tools/index.js';
-import memoryService from './services/memory.js';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { registerAllTools } from "./tools/index.js";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import { z } from "zod";
 
-/**
- * Gestisce le richieste MCP
- */
-async function handleMcpRequest(method, params) {
-  const handler = toolHandlers[method];
+// Leggi versione da package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+
+// Crea istanza server con versione da package.json
+const server = new McpServer({
+  name: "neural-memory",
+  version: packageJson.version,
+});
+
+// Registra tutti i tool
+const registeredTools = registerAllTools(server);
+
+// Avvio server
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
   
-  if (!handler) {
-    return {
-      success: false,
-      content: [{ type: 'text', text: `Unknown method: ${method}` }]
-    };
-  }
-
-  try {
-    return await handler(params || {});
-  } catch (error) {
-    return {
-      success: false,
-      content: [{ type: 'text', text: `Error: ${error.message}` }]
-    };
-  }
+  console.error("Neural Memory MCP Server v2.0 started!");
+  console.error("Database: Unified SQLite");
+  console.error("Available tools:");
+  registeredTools.forEach(t => {
+    console.error(`  - ${t.name}: ${t.description.substring(0, 60)}...`);
+  });
 }
 
-/**
- * Lista tutti i tools disponibili
- */
-function listTools() {
-  return toolDefinitions.map(tool => ({
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema
-  }));
-}
-
-/**
- * Ottiene la sessione attiva corrente
- */
-function getActiveSession() {
-  return memoryService.getActiveSession();
-}
-
-/**
- * Imposta la sessione attiva
- */
-function setActiveSession(sessionId) {
-  memoryService.setActiveSession(sessionId);
-  return { success: true };
-}
-
-/**
- * Inizializza il servizio
- */
-async function initialize() {
-  await memoryService.ensureInitialized();
-  return { success: true };
-}
-
-// Esporta per essere usato dal server MCP
-export {
-  handleMcpRequest,
-  listTools,
-  getActiveSession,
-  setActiveSession,
-  initialize,
-  toolDefinitions,
-  toolHandlers
-};
+main().catch((error) => {
+  console.error("Fatal error:", error);
+  process.exit(1);
+});
