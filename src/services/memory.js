@@ -24,6 +24,19 @@ class MemoryService {
     }
 
     /**
+     * Helper: парсит keywords (могут быть array или JSON string)
+     */
+    parseKeywords(keywords) {
+        if (!keywords) return [];
+        if (Array.isArray(keywords)) return keywords;
+        try {
+            return JSON.parse(keywords);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
      * Inizializza il servizio (una volta sola)
      */
     async ensureInitialized() {
@@ -1276,15 +1289,18 @@ class MemoryService {
             minConfidence: 0.2
         });
 
-        return results.slice(0, maxResults).map(r => ({
-            node_id: r.node_id,
-            type: r.type,
-            keywords: r.keywords,
-            reason: `Condivide ${r.keywords.filter(k =>
-                currentKeywords.some(ck => ck.toLowerCase() === k.toLowerCase())
-            ).length} keyword(s)`,
-            confidence: r.confidence
-        }));
+        return results.slice(0, maxResults).map(r => {
+            const nodeKeywords = this.parseKeywords(r.keywords);
+            return {
+                node_id: r.node_id,
+                type: r.type,
+                keywords: nodeKeywords,
+                reason: `Condivide ${nodeKeywords.filter(k =>
+                    currentKeywords.some(ck => ck.toLowerCase() === k.toLowerCase())
+                ).length} keyword(s)`,
+                confidence: r.confidence
+            };
+        });
     }
 }
 
