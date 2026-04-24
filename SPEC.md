@@ -1,388 +1,394 @@
-# 🧠 Neural Memory MCP - Specifica Tecnica
+# Neural Memory v2.0 - Specifica Tecnica
 
-## 1. Panoramica
+## Panoramica
 
-**Nome**: Neural Memory MCP  
-**Tipo**: Model Context Protocol Server  
-**Scopo**: Dare memoria persistente e organizzata agli agenti AI tramite un sistema neurale-like  
-**Stack**: Node.js (JavaScript), SQLite + FTS5, Sequelize ORM
+**Neural Memory** è un sistema MCP (Model Context Protocol) che implementa una rete neurale artificiale per la memorizzazione e il recupero di conoscenze contestuali. La versione 2.0 introduce un **database unificato** con **Session Management** avanzato e **Skills Framework**.
+
+## Architettura v2.0
+
+### Database Unificato
+
+**Non più database separati per progetto.** Tutta la memoria risiede in un unico database SQLite:
+
+```
+data/
+└── neural-memory-unified.sqlite
+```
+
+### Schema Database
+
+#### Tabella `sessions` (NUOVA in v2.0)
+| Campo | Tipo | Descrizione |
+|-------|------|-------------|
+| id | UUID | Identificatore unico |
+| name | TEXT | Nome sessione |
+| description | TEXT | Descrizione lavoro |
+| started_at | DATETIME | Inizio sessione |
+| ended_at | DATETIME | Fine sessione (null = attiva) |
+| context | JSON | Snapshot contesto iniziale |
+| project_path | TEXT | Riferimento percorso progetto |
+| tags | JSON | Tag categorizzazione |
+| stats | JSON | Statistiche: nodes, skills, duration |
+| is_active | BOOLEAN | Sessione attualmente attiva |
+
+#### Tabella `nodes`
+| Campo | Tipo | Descrizione |
+|-------|------|-------------|
+| id | UUID | Identificatore unico |
+| session_id | UUID | Sessione di appartenenza (nullable) |
+| parent_id | UUID | Nodo padre per gerarchia |
+| type | TEXT | Categoria: skill, error, task, etc. |
+| keywords | JSON | Keywords per ricerca |
+| content | TEXT | Contenuto long-text |
+| metadata | JSON | Dati strutturati |
+| depth | INTEGER | Livello gerarchia |
+| weight | FLOAT | Peso per ranking (0.1-10.0) |
+| keyword_count | INTEGER | Ottimizzazione ricerca |
+| task_date | DATE | Data task associato |
+
+#### Tabella `node_links`
+| Campo | Tipo | Descrizione |
+|-------|------|-------------|
+| id | UUID | Identificatore |
+| from_node_id | UUID | Nodo sorgente |
+| to_node_id | UUID | Nodo destinazione |
+| link_type | TEXT | child, parent, related, reference, trigger, caused |
+| weight | FLOAT | Peso collegamento |
+| metadata | JSON | Dati aggiuntivi |
+
+#### Tabella `nodes_fts` (FTS5 Virtual Table)
+Per full-text search ottimizzato.
 
 ---
 
-## 2. Architettura
+## Tools MCP v2.0
 
-### 2.1 Schema Concettuale
+### Session Management
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      MASTER DB                               │
-│  ┌─────────────┐                                           │
-│  │  projects   │ ────── project_id ──────┐                 │
-│  └─────────────┘                         │                 │
-└───────────────────────────────────────────│─────────────────┘
-                                            │
-                                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    PROJECT DB (1 per progetto)              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   nodes     │  │ node_links  │  │    nodes_fts (FTS5) │  │
-│  │             │  │             │  │                     │  │
-│  │ id          │  │ from_node   │  │ node_id             │  │
-│  │ keywords[]  │◄─┤ to_node     │  │ keywords            │  │
-│  │ content     │  │ link_type   │  │ content             │  │
-│  │ type        │  │ weight      │  │                     │  │
-│  │ depth       │  └─────────────┘  └─────────────────────┘  │
-│  │ parent_id ──┼──► (self-reference)                        │
-│  └─────────────┘                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 Struttura File
-
-```
-neural-memory/
-├── src/
-│   ├── index.js              # Entry point MCP server
-│   ├── database/
-│   │   ├── connection.js    # Sequelize connection manager
-│   │   ├── init-master.js   # Master database setup
-│   │   └── models/
-│   │       ├── Project.js   # Project model
-│   │       ├── Node.js      # Node model
-│   │       ├── Link.js      # Link model
-│   │       └── index.js     # Model associations
-│   ├── services/
-│   │   └── memory.js        # Business logic
-│   └── tools/
-│       └── index.js         # MCP tool definitions
-├── data/
-│   ├── master.sqlite       # Master database
-│   └── {project_id}.sqlite # Project databases
-├── test/
-│   └── test-manual.js      # Manual tests
-├── package.json
-├── README.md
-└── SPEC.md                 # This file
-```
-
----
-
-## 3. Modelli Dati
-
-### 3.1 Project Model
-
-| Campo | Tipo | Descrizione |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `name` | STRING | Nome del progetto |
-| `path` | STRING | Percorso (unico) |
-| `description` | TEXT | Descrizione |
-| `metadata` | JSON | Metadati custom |
-| `stats` | JSON | Cache statistiche |
-| `created_at` | DATETIME | Timestamp creazione |
-| `updated_at` | DATETIME | Timestamp aggiornamento |
-
-### 3.2 Node Model
-
-| Campo | Tipo | Descrizione |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `projectId` | UUID | FK a Project |
-| `parentId` | UUID | FK a Node (nullable) |
-| `type` | STRING | Tipo: task, entity, file, concept, summary, action, generic |
-| `keywords` | JSON | Array keywords |
-| `content` | TEXT | Contenuto long-text |
-| `metadata` | JSON | Dati aggiuntivi |
-| `depth` | INTEGER | Livello gerarchia (0 = radice) |
-| `weight` | FLOAT | Peso per ranking (0.1-10.0) |
-| `keywordCount` | INTEGER | Cache conteggio keywords |
-| `created_at` | DATETIME | Timestamp creazione |
-| `updated_at` | DATETIME | Timestamp aggiornamento |
-
-### 3.3 Link Model
-
-| Campo | Tipo | Descrizione |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `fromNodeId` | UUID | Nodo sorgente |
-| `toNodeId` | UUID | Nodo destinazione |
-| `linkType` | STRING | Tipo: child, parent, related, reference, trigger, caused |
-| `weight` | FLOAT | Peso collegamento |
-| `metadata` | JSON | Dati aggiuntivi |
-| `created_at` | DATETIME | Timestamp creazione |
-| `updated_at` | DATETIME | Timestamp aggiornamento |
-
----
-
-## 4. MCP Tools
-
-### 4.1 Step 1 - MVP Base
-
-#### `initialize_project`
-```javascript
+#### `start_session`
+Inizia una nuova sessione di lavoro.
+```json
 {
-  name: string,           // Required: Nome progetto
-  path: string,            // Required: Percorso progetto
-  description?: string     // Optional: Descrizione
+  "name": "refactoring API Gateway",
+  "description": "Refactoring completo del gateway",
+  "tags": ["backend", "api"],
+  "projectPath": "/path/to/project"
 }
-// Returns: { project_id, name, root_node_id, success }
 ```
+
+#### `resume_session`
+Riprende una sessione esistente.
+```json
+{
+  "sessionId": "uuid-sessione"
+}
+```
+
+#### `end_session`
+Chiude sessione e genera statistiche.
+```json
+{
+  "sessionId": "uuid-sessione"
+}
+```
+
+#### `list_sessions`
+Lista sessioni con filtri.
+```json
+{
+  "limit": 20,
+  "includeEnded": false,
+  "tags": ["backend"],
+  "projectPath": "/path/to/project"
+}
+```
+
+---
+
+### Skills Framework (Schema Rigido)
+
+#### `register_skill`
+Registra skill con schema obbligatorio.
+```json
+{
+  "name": "Fastify CRUD API",
+  "framework": "fastify",
+  "language": "javascript",
+  "filePattern": "**/*.service.js",
+  "learnSteps": [
+    "1. Inizializzare progetto con npm",
+    "2. Creare schema di validazione",
+    "3. Implementare handler CRUD"
+  ],
+  "useCases": [
+    "Creare API REST con validazione",
+    "Gestire errori standardizzati"
+  ],
+  "implementation": "// Codice di esempio...",
+  "examples": ["auth.service.js", "user.service.js"],
+  "prerequisites": ["Node.js basics", "SQL fundamentals"]
+}
+```
+
+#### `apply_skill`
+Trova e applica skill matching.
+```json
+{
+  "keywords": ["fastify", "crud", "api"],
+  "domain": "javascript",
+  "context": "Sto creando un microservizio per utenti"
+}
+```
+
+#### `suggest_skills`
+Suggerisce skills basate su contesto.
+```json
+{
+  "currentKeywords": ["database", "postgres"],
+  "domain": "javascript",
+  "maxResults": 5
+}
+```
+
+---
+
+### Context Management
+
+#### `save_context_snapshot`
+Salva snapshot contesto dettagliato.
+```json
+{
+  "summary": "Refactoring completato all'80%",
+  "workDone": {
+    "completed": ["Auth middleware", "User schema"],
+    "inProgress": ["Order service"]
+  },
+  "pendingTasks": [
+    "Completare Order service",
+    "Scrivere test di integrazione"
+  ],
+  "keyDecisions": [
+    "Usare Prisma come ORM",
+    "Validazione con Zod"
+  ],
+  "blockers": [
+    "Manca configurazione staging"
+  ],
+  "learnings": [
+    "Prisma richiede migration explicite"
+  ],
+  "nextSteps": [
+    "Testare endpoint orders",
+    "Deploy su staging"
+  ]
+}
+```
+
+#### `restore_context`
+Recupera contesto salvato.
+```json
+{
+  "snapshotId": "uuid-snapshot"
+}
+```
+
+#### `generate_session_summary`
+Genera riassunto sessione.
+```json
+{
+  "sessionId": "uuid-sessione"
+}
+```
+
+---
+
+### Node Management
 
 #### `add_node`
-```javascript
+Aggiunge nodo alla memoria.
+```json
 {
-  project_id: string,      // Required
-  keywords?: string[],     // Default: []
-  content?: string,        // Default: ''
-  type?: string,           // Default: 'generic'
-  parent_id?: string,       // Default: null
-  weight?: number,         // Default: 1.0
-  metadata?: object        // Default: {}
+  "sessionId": "uuid-sessione",
+  "keywords": ["fastify", "middleware", "auth"],
+  "content": "Implementazione middleware JWT...",
+  "type": "generic",
+  "parentId": "uuid-parent",
+  "metadata": {},
+  "weight": 1.0
 }
-// Returns: { node_id, type, depth, keywords_count, success }
 ```
 
 #### `search_nodes`
-```javascript
+Cerca nodi con confidence scoring.
+```json
 {
-  project_id: string,      // Required
-  keywords: string[],      // Required
-  max_results?: number,     // Default: 10
-  min_confidence?: number, // Default: 0.1
-  type?: string           // Filter by type
+  "keywords": ["fastify", "crud"],
+  "maxResults": 10,
+  "minConfidence": 0.3,
+  "type": "skill",
+  "sessionId": null
 }
-// Returns: [{ node_id, type, keywords, content, depth, confidence, created_at }]
 ```
-
-### 4.2 Step 2 - Navigazione
 
 #### `get_node_context`
-```javascript
+Ottiene contesto nodo (breadcrumbs, figli, relazioni).
+```json
 {
-  project_id: string,      // Required
-  node_id: string,         // Required
-  depth?: number           // Default: 1
+  "nodeId": "uuid-nodo",
+  "depth": 2
 }
-// Returns: { node, breadcrumbs[], children[], grandchildren[], related[] }
 ```
-
-#### `get_project_stats`
-```javascript
-{
-  project_id: string       // Required
-}
-// Returns: { project_id, project_name, total_nodes, total_links, types, last_activity }
-```
-
-### 4.3 Step 3 - Linking
 
 #### `link_nodes`
-```javascript
+Crea collegamento tra nodi.
+```json
 {
-  project_id: string,      // Required
-  from_node_id: string,    // Required
-  to_node_id: string,      // Required
-  link_type?: string,      // Default: 'related'
-  weight?: number          // Default: 1.0
+  "fromNodeId": "uuid-sorgente",
+  "toNodeId": "uuid-destinazione",
+  "linkType": "related",
+  "weight": 1.0
 }
-// Returns: { link_id, link_type, weight, created }
 ```
-
-#### `suggest_nodes`
-```javascript
-{
-  project_id: string,      // Required
-  current_keywords?: string[], // Default: []
-  max_results?: number     // Default: 5
-}
-// Returns: [{ node_id, type, keywords, reason, confidence }]
-```
-
-### 4.4 Step 4 - Management
 
 #### `update_node`
-```javascript
+Aggiorna nodo esistente.
+```json
 {
-  node_id: string,         // Required
-  keywords?: string[],
-  content?: string,
-  weight?: number,
-  metadata?: object
+  "nodeId": "uuid-nodo",
+  "keywords": ["updated", "keywords"],
+  "content": "Nuovo contenuto...",
+  "weight": 2.0
 }
-// Returns: { node_id, updated }
 ```
 
 #### `delete_node`
-```javascript
+Elimina nodo.
+```json
 {
-  project_id: string,      // Required
-  node_id: string,         // Required
-  cascade?: boolean        // Default: false
+  "nodeId": "uuid-nodo",
+  "cascade": false
 }
-// Returns: { deleted, node_id }
 ```
 
 ---
 
-## 5. Sistema di Ranking
+### Reports
 
-### 5.1 Algoritmo Confidence
-
-```
-confidence = BM25_norm + keyword_match + recency + type_bonus + weight
-
-Dove:
-- BM25_norm     = min(0.4, -bm25_score / 10)  [FTS5 full-text]
-- keyword_match = (matched / total_keywords) * 0.3
-- recency       = 0.15 (< 1gg), 0.10 (< 7gg), 0.05 (< 30gg), 0 (> 30gg)
-- type_bonus    = 0.1 (task), 0.05 (other)
-- weight        = min(0.05, weight * 0.01)
-
-Totale normalizzato: min(1.0, somma)
+#### `get_memory_report`
+Genera report in formato JSON o HTML.
+```json
+{
+  "format": "html",
+  "keywords": ["fastify"],
+  "includeStats": true,
+  "includeRecentWork": true,
+  "includeTopSkills": true
+}
 ```
 
-### 5.2 Esempio Calcolo
-
-Nodo con:
-- BM25 score: -2.5 → normalizzato: 0.25
-- Keywords: ["entity", "User"] che matchano con ["User"] → 1/1 * 0.3 = 0.30
-- Creato 3 giorni fa → 0.10
-- Tipo "entity" → 0.05
-- Weight 1.5 → 0.015
-
-**Confidence = 0.25 + 0.30 + 0.10 + 0.05 + 0.015 = 0.715**
-
----
-
-## 6. FTS5 Integration
-
-### 6.1 Creazione Virtual Table
-
-```sql
-CREATE VIRTUAL TABLE nodes_fts USING fts5(
-  node_id UNINDEXED,
-  keywords,
-  content,
-  content_rowid='rowid'
-)
-```
-
-### 6.2 Query di Ricerca
-
-```sql
-SELECT node_id, bm25(nodes_fts) as score
-FROM nodes_fts
-WHERE nodes_fts MATCH 'keyword1 OR keyword2 OR ...'
-ORDER BY bm25(nodes_fts)
-LIMIT ?
+#### `suggest_nodes`
+Suggerisce nodi rilevanti.
+```json
+{
+  "currentKeywords": ["api", "validation"],
+  "maxResults": 5
+}
 ```
 
 ---
 
-## 7. Iterazioni Sviluppo
+## Confidence Scoring
 
-### Step 1: ✅ Base MVP
-- [x] Setup progetto
-- [x] Database connection
-- [x] Modelli Sequelize
-- [x] MCP server base
-- [x] 3 tools MVP (initialize, add_node, search_nodes)
+Il sistema calcola un **confidence score** (0.0-1.0) basato su:
 
-### Step 2: ✅ Navigazione
-- [x] get_node_context
-- [x] get_project_stats
-- [x] Breadcrumbs
+| Componente | Peso Max | Descrizione |
+|------------|----------|-------------|
+| BM25 Score | 0.35 | Full-text search ranking |
+| Keyword Match | 0.25 | Sovrapposizione keywords |
+| Recency Bonus | 0.10 | Nodi recenti preferiti |
+| Type Score | 0.15 | Skills/errors più importanti |
+| Weight | 0.15 | Peso manuale |
 
-### Step 3: ✅ Linking
-- [x] link_nodes
-- [x] suggest_nodes
-- [x] auto_suggest basato su keywords
-
-### Step 4: ✅ Management
-- [x] update_node
-- [x] delete_node
-- [x] Cascade delete
-
-### Step 5: ⬜ Testing & Optimization
-- [ ] Test MCP Inspector
-- [ ] Test E2E completi
-- [ ] Ottimizzazione indici
-- [ ] CLI per LLM integration
-
----
-
-## 8. Testing
-
-### 8.1 MCP Inspector
-
-```bash
-npx @modelcontextprotocol/inspector node src/index.js
-```
-
-### 8.2 Test Manuale
-
-```bash
-npm test
-```
-
----
-
-## 9. Esempi d'Uso
-
-### 9.1 LLM Auto-Save Pattern
-
+### Type Scores
 ```javascript
-// Dopo ogni task completato
-await callTool('add_node', {
-  project_id: currentProjectId,
-  keywords: extractTaskKeywords(task),
-  content: formatTaskSummary(task),
-  type: 'task',
-  parent_id: currentContextNodeId,
-  metadata: {
-    files: task.modifiedFiles,
-    actions: task.actions,
-    duration: task.duration
-  }
-});
-```
-
-### 9.2 Recupero Memoria
-
-```javascript
-// Prima di iniziare un nuovo task
-const context = await callTool('get_node_context', {
-  project_id: projectId,
-  node_id: rootNodeId,
-  depth: 2
-});
-
-// Cerca task correlati
-const related = await callTool('search_nodes', {
-  project_id: projectId,
-  keywords: currentTaskKeywords,
-  max_results: 5,
-  min_confidence: 0.3
-});
+const typeScores = {
+  'error': 0.15,        // Priorità MASSIMA
+  'skill': 0.15,        // Skills molto importanti
+  'operation': 0.14,
+  'convention': 0.13,
+  'edge_case': 0.12,
+  'pattern': 0.11,
+  'task': 0.10,
+  'action': 0.09,
+  'entity': 0.07,
+  'file': 0.06,
+  'concept': 0.06,
+  'summary': 0.05,
+  'generic': 0.04
+};
 ```
 
 ---
 
-## 10. Limitazioni & Futuri Miglioramenti
+## Node Types
 
-- [ ] Supporto per allegati (blob in DB)
-- [ ] Backup automatico
-- [ ] Query in linguaggio naturale
-- [ ] Auto-linking intelligente (NLP)
-- [ ] Clustering automatico
-- [ ] Visualizzazione grafo
-- [ ] Esportazione/Importazione
+| Type | Descrizione | Priority |
+|------|-------------|----------|
+| `skill` | Knowledge skill registrata | ALTA |
+| `error` | Errore risolto | ALTA |
+| `operation` | How-to documentato | MEDIA-ALTA |
+| `convention` | Regola di stile/naming | MEDIA-ALTA |
+| `edge_case` | Caso limite scoperto | MEDIA |
+| `pattern` | Design pattern | MEDIA |
+| `task` | Task completato/pendente | MEDIA |
+| `action` | Azione eseguita | MEDIA-BASSA |
+| `entity` | Entità di sistema | BASSA |
+| `file` | Riferimento file | BASSA |
+| `concept` | Concetto astratto | BASSA |
+| `summary` | Riassunto | BASSA |
+| `generic` | Nodo generico | MINIMA |
+| `context_snapshot` | Snapshot contesto | SPECIALE |
 
 ---
 
-## 11. Riferimenti
+## Link Types
 
-- [MCP SDK](https://github.com/modelcontextprotocol/sdk)
-- [Sequelize ORM](https://sequelize.org/)
-- [SQLite FTS5](https://www.sqlite.org/fts5.html)
-- [BM25 Algorithm](https://en.wikipedia.org/wiki/Okapi_BM25)
+| Type | Descrizione |
+|------|-------------|
+| `child` | Figlio gerarchico |
+| `parent` | Padre gerarchico |
+| `related` | Collegamento generico |
+| `reference` | Riferimento a docs |
+| `trigger` | Causa-trigger |
+| `caused` | Effetto-causato |
+
+---
+
+## Metriche Sessione
+
+Ogni sessione traccia:
+- `nodesCreated`: Nodi creati durante la sessione
+- `skillsRegistered`: Skills apprese
+- `skillsUsed`: Skills utilizzate/applicate
+- `durationMinutes`: Durata totale
+
+---
+
+## Changelog v2.0
+
+### Breaking Changes
+- **RIMOSSO**: `projectId` dai nodi (memoria unificata)
+- **RIMOSSO**: Database separati per progetto
+- **MODIFICATO**: Schema Node senza project_id
+
+### Nuove Funzionalità
+- **AGGIUNTO**: Session Management completo
+- **AGGIUNTO**: Skills Framework con schema rigido
+- **AGGIUNTO**: Context Compression
+- **AGGIUNTO**: Reports HTML
+- **AGGIUNTO**: Confidence scoring rafforzato per Skills/Errors
+
+### Miglioramenti
+- Ricerca full-text ottimizzata
+- Type-based scoring migliorato
+- Gerarchia nodi più robusta

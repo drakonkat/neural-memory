@@ -1,26 +1,30 @@
 /**
- * Models Index
- * Esporta tutti i modelli - DB separati, NO foreign keys
+ * Models Index v2.0
+ * Esporta tutti i modelli - DB UNIFICATO, NO Project separato
+ * 
+ * CAMBIAMENTI v2.0:
+ * - RIMOSSO: Project model (non più vincolato a progetto)
+ * - AGGIUNTO: Session model (tracciamento sessioni di lavoro)
  */
 
-import ProjectModel from './Project.js';
+import SessionModel from './Session.js';
 import NodeModel from './Node.js';
 import LinkModel from './Link.js';
 
 /**
  * Inizializza tutti i modelli con Sequelize
  * @param {Sequelize} sequelize 
- * @returns {Object} - { Project, Node, Link }
+ * @returns {Object} - { Session, Node, Link }
  */
 function initModels(sequelize) {
-  const Project = ProjectModel(sequelize);
+  const Session = SessionModel(sequelize);
   const Node = NodeModel(sequelize);
   const Link = LinkModel(sequelize);
   
-  // NOTA: I DB sono separati, niente foreign key constraints!
-  // Le relazioni sono gestite via software, non via FK
+  // DB unificato - niente foreign key constraints tra modelli
+  // Le relazioni sono gestite via software quando necessario
   
-  return { Project, Node, Link };
+  return { Session, Node, Link };
 }
 
 export { initModels };

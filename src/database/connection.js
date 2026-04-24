@@ -1,6 +1,10 @@
 /**
- * Database Connection Manager
- * Gestisce connessioni Sequelize per ogni progetto (1 DB per progetto)
+ * Database Connection Manager v2.0
+ * Gestisce connessione Sequelize per il DB UNIFICATO
+ * 
+ * CAMBIAMENTI v2.0:
+ * - UNICO database per tutta la memoria
+ * - Rimosso: gestione DB multipli per progetto
  */
 
 import { Sequelize } from 'sequelize';
@@ -10,10 +14,11 @@ import { fileURLToPath } from 'url';
 
 const connections = new Map();
 
-// Directory per i database
+// Directory per il database unificato
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, '../../data');
+const UNIFIED_DB_NAME = 'neural-memory-unified.sqlite';
 
 /**
  * Inizializza la directory dei dati se non esiste
@@ -25,21 +30,21 @@ function initDataDir() {
 }
 
 /**
- * Ottiene o crea una connessione Sequelize per un progetto
- * @param {string} projectId - ID del progetto
- * @param {string} dbPath - Percorso opzionale al DB (se non fornito, usa DATA_DIR)
- * @returns {Sequelize} - Istanza Sequelize
+ * Ottiene o crea una connessione Sequelize per il DB unificato
+ * @returns {Sequelize} - Istanza Sequelize per il DB unificato
  */
-function getConnection(projectId, dbPath = null) {
+function getConnection() {
+  const dbKey = 'unified';
+  
   // Se esiste già la connessione, restituiscila
-  if (connections.has(projectId)) {
-    return connections.get(projectId);
+  if (connections.has(dbKey)) {
+    return connections.get(dbKey);
   }
 
   initDataDir();
 
-  // Crea nuovo percorso DB
-  const databasePath = dbPath || path.join(DATA_DIR, `${projectId}.sqlite`);
+  // Percorso DB unificato
+  const databasePath = path.join(DATA_DIR, UNIFIED_DB_NAME);
   
   const sequelize = new Sequelize({
     dialect: 'sqlite',
@@ -51,19 +56,30 @@ function getConnection(projectId, dbPath = null) {
     }
   });
 
-  connections.set(projectId, sequelize);
+  connections.set(dbKey, sequelize);
   return sequelize;
 }
 
 /**
- * Chiude la connessione per un progetto
- * @param {string} projectId 
+ * Ottiene la connessione per un projectId (legacy - reindirizza a unificato)
+ * @param {string} projectId - ID del progetto (ignorato in v2.0)
+ * @returns {Sequelize} - Istanza Sequelize unificata
+ * @deprecated Usare getConnection() direttamente
  */
-async function closeConnection(projectId) {
-  if (connections.has(projectId)) {
-    const sequelize = connections.get(projectId);
+function getConnectionForProject(projectId) {
+  console.warn('[Connection] getConnectionForProject è deprecato in v2.0. Usa getConnection()');
+  return getConnection();
+}
+
+/**
+ * Chiude la connessione
+ */
+async function closeConnection() {
+  const dbKey = 'unified';
+  if (connections.has(dbKey)) {
+    const sequelize = connections.get(dbKey);
     await sequelize.close();
-    connections.delete(projectId);
+    connections.delete(dbKey);
   }
 }
 
@@ -71,7 +87,7 @@ async function closeConnection(projectId) {
  * Chiude tutte le connessioni
  */
 async function closeAllConnections() {
-  for (const [projectId, sequelize] of connections) {
+  for (const [key, sequelize] of connections) {
     await sequelize.close();
   }
   connections.clear();
@@ -79,27 +95,28 @@ async function closeAllConnections() {
 
 /**
  * Verifica se una connessione esiste
- * @param {string} projectId 
  * @returns {boolean}
  */
-function hasConnection(projectId) {
-  return connections.has(projectId);
+function hasConnection() {
+  return connections.has('unified');
 }
 
 /**
- * Lista tutti i progetti connessi
- * @returns {string[]}
+ * Ottiene il percorso del DB unificato
+ * @returns {string}
  */
-function getConnectedProjects() {
-  return Array.from(connections.keys());
+function getUnifiedDbPath() {
+  return path.join(DATA_DIR, UNIFIED_DB_NAME);
 }
 
 export {
   getConnection,
+  getConnectionForProject,
   closeConnection,
   closeAllConnections,
   hasConnection,
-  getConnectedProjects,
   initDataDir,
-  DATA_DIR
+  getUnifiedDbPath,
+  DATA_DIR,
+  UNIFIED_DB_NAME
 };

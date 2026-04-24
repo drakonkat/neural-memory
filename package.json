@@ -1,34 +1,36 @@
 {
-  "name": "@drakonkat/neural-memory",
-  "version": "1.0.9",
-  "description": "MCP Server for AI Agent Memory - Neural network-like memory system with keyword-based search",
+  "name": "neural-memory",
+  "version": "2.0.0",
+  "description": "MCP Server for Neural Memory - Unified memory with Session Management and Skills Framework",
   "main": "src/index.js",
-  "bin": {
-    "neural-memory": "src/index.js"
-  },
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "test": "node test/test-manual.js",
-    "inspect": "npx @modelcontextprotocol/inspector node src/index.js",
-    "inspect-publish": "npx @modelcontextprotocol/inspector npx @drakonkat/neural-memory"
+    "test": "node test/test-migration.js",
+    "test:manual": "node test/test-manual.js",
+    "start": "node src/index.js"
   },
   "keywords": [
     "mcp",
-    "model-context-protocol",
-    "memory",
+    "neural-memory",
     "ai",
-    "agent",
-    "neural"
+    "context",
+    "skills",
+    "session-management"
   ],
-  "author": "Drakonkat",
+  "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "sequelize": "^6.37.8",
-    "sqlite3": "^6.0.1",
-    "uuid": "^14.0.0",
-    "zod": "^3.23.8"
+    "sequelize": "^6.35.0",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./models": "./src/database/models/index.js",
+    "./services": "./src/services/memory.js",
+    "./tools": "./src/tools/index.js"
   }
 }

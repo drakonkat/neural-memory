@@ -1,186 +1,300 @@
 /**
- * Memory Service
- * Logica di business per la gestione della memoria neurale
+ * Memory Service v2.0
+ * Logica di business per la gestione della memoria neurale unificata
+ * 
+ * CAMBIAMENTI v2.0:
+ * - DB unificato (nessun projectId)
+ * - Session management
+ * - Skills con schema rigido
+ * - Context compression
  */
 
-import {v4 as uuidv4} from 'uuid';
-import {getConnection, initDataDir} from '../database/connection.js';
-import {initMasterDb, getMasterDb} from '../database/init-master.js';
-import {initModels} from '../database/models/index.js';
-import {runMigrations} from '../database/migrator.js';
-import {writeLocalProjectId, readLocalProjectId, getProjectIdFromPath} from './project-helper.js';
+import { v4 as uuidv4 } from 'uuid';
+import { getConnection, initDataDir } from '../database/connection.js';
+import { initModels } from '../database/models/index.js';
+import { runMigrations } from '../database/migrator.js';
 
 class MemoryService {
     constructor() {
-        // Cache dei modelli per progetto
-        this.modelsCache = new Map();
-        this.masterInitialized = false;
+        // Cache del modello (unico DB)
+        this.modelsCache = null;
+        this.initialized = false;
+        // Sessione attiva corrente
+        this.activeSessionId = null;
     }
 
     /**
-     * Ottiene project_id dato un path, con auto-creazione file locale
-     * @param {string} projectPath - Percorso del progetto
-     * @param {boolean} autoCreate - Se creare il progetto se non esiste
-     * @returns {Promise<string|null>}
+     * Inizializza il servizio (una volta sola)
      */
-    async resolveProjectId(projectPath, autoCreate = false) {
-        await this.ensureMasterDb();
-        const masterModels = await this.getModels('master');
-        return await getProjectIdFromPath(projectPath, masterModels);
-    }
-
-    /**
-     * Ottiene o crea un progetto, scrivendo anche il file .neural-memory-id
-     * @param {string} name - Nome del progetto
-     * @param {string} projectPath - Percorso del progetto
-     * @param {string} description - Descrizione opzionale
-     * @returns {Object} Risultato con project_id, name, is_new
-     */
-    async getOrCreateProject(name, projectPath, description = '') {
-        initDataDir();
-        await this.ensureMasterDb();
-        const masterModels = await this.getModels('master');
-        const {Project} = masterModels;
-
-        // Cerca progetto esistente per path
-        let project = await Project.findOne({where: {path: projectPath}});
-        let isNew = false;
-
-        if (!project) {
-            // Crea nuovo progetto
-            project = await Project.create({
-                name,
-                path: projectPath,
-                description
-            });
-            isNew = true;
-
-            // Inizializza DB per il progetto
-            const {Node} = await this.getModels(project.id);
-            await runMigrations(getConnection(project.id));
-
-            // Crea nodo radice
-            await Node.create({
-                projectId: project.id,
-                type: 'root',
-                keywords: [name.toLowerCase()],
-                content: `Project root for ${name}`,
-                depth: 0
-            });
-        }
-
-        // Scrivi sempre il file locale (sovrascrive per sicurezza)
-        writeLocalProjectId(projectPath, project.id);
-
-        return {
-            project_id: project.id,
-            project_name: project.name,
-            path: project.path,
-            is_new: isNew,
-            success: true
-        };
-    }
-
-    /**
-     * Inizializza il database master (una volta sola)
-     */
-    async ensureMasterDb() {
-        if (!this.masterInitialized) {
-            await getMasterDb();
-            this.masterInitialized = true;
+    async ensureInitialized() {
+        if (!this.initialized) {
+            initDataDir();
+            const sequelize = getConnection();
+            this.modelsCache = initModels(sequelize);
+            await runMigrations(sequelize);
+            this.initialized = true;
         }
     }
 
     /**
-     * Ottiene i modelli per un progetto (con cache)
-     * @param {string} projectId
-     * @returns {Object} { Project, Node, Link }
+     * Ottiene i modelli (sempre dalla stessa cache)
+     * @returns {Object} - { Session, Node, Link }
      */
-    async getModels(projectId) {
-        if (this.modelsCache.has(projectId)) {
-            return this.modelsCache.get(projectId);
-        }
-
-        const sequelize = getConnection(projectId);
-        const models = initModels(sequelize);
-
-        // Esegue migration automatiche per creare tabelle mancanti
-        // SENZA cancellare dati esistenti!
-        await runMigrations(sequelize);
-
-        this.modelsCache.set(projectId, models);
-
-        return models;
+    async getModels() {
+        await this.ensureInitialized();
+        return this.modelsCache;
     }
 
     /**
-     * Inizializza un nuovo progetto
-     * @param {string} name - Nome del progetto
-     * @param {string} projectPath - Percorso del progetto
-     * @param {string} description - Descrizione opzionale
-     * @returns {Object} { project_id, name, success }
+     * Imposta la sessione attiva
+     * @param {string|null} sessionId
      */
-    async initializeProject(name, projectPath, description = '') {
-        initDataDir();
+    setActiveSession(sessionId) {
+        this.activeSessionId = sessionId;
+    }
 
-        // Assicura che il master DB sia inizializzato
-        await this.ensureMasterDb();
-        const {Project} = await this.getModels('master');
+    /**
+     * Ottiene la sessione attiva corrente
+     * @returns {string|null}
+     */
+    getActiveSession() {
+        return this.activeSessionId;
+    }
 
-        // Verifica se il progetto esiste già
-        const existing = await Project.findOne({where: {path: projectPath}});
-        if (existing) {
-            return {
-                project_id: existing.id,
-                name: existing.name,
-                success: true,
-                message: 'Project already exists'
-            };
-        }
+    // ==================== SESSION MANAGEMENT ====================
 
-        // Crea nuovo progetto nel DB master
-        const project = await Project.create({
+    /**
+     * Inizia una nuova sessione di lavoro
+     * @param {Object} params
+     * @returns {Object} - { session_id, name, started_at, success }
+     */
+    async startSession({
+        name,
+        description = '',
+        tags = [],
+        projectPath = null,
+        initialContext = {}
+    }) {
+        await this.ensureInitialized();
+        const { Session } = await this.getModels();
+
+        // Chiudi sessioni attive precedenti
+        await Session.update(
+            { isActive: false, endedAt: new Date() },
+            { where: { isActive: true } }
+        );
+
+        // Crea nuova sessione
+        const session = await Session.create({
             name,
-            path: projectPath,
-            description
+            description,
+            tags,
+            projectPath,
+            context: initialContext,
+            isActive: true,
+            stats: {
+                nodesCreated: 0,
+                skillsRegistered: 0,
+                skillsUsed: 0,
+                durationMinutes: 0
+            }
         });
 
-        // Inizializza DB specifico per il progetto
-        const {Node} = await this.getModels(project.id);
+        this.activeSessionId = session.id;
 
-        // Crea nodo radice per il progetto
-        const rootNode = await Node.create({
-            projectId: project.id,
-            type: 'root',
-            keywords: [name.toLowerCase()],
-            content: `Project root for ${name}`,
-            depth: 0
-        });
-
-        // Le tabelle vengono create automaticamente dalle migration
         return {
-            project_id: project.id,
-            name: project.name,
-            root_node_id: rootNode.id,
+            session_id: session.id,
+            name: session.name,
+            description: session.description,
+            tags: session.tags,
+            started_at: session.startedAt,
+            is_active: session.isActive,
             success: true
         };
     }
+
+    /**
+     * Riprende una sessione esistente
+     * @param {string} sessionId
+     * @returns {Object}
+     */
+    async resumeSession(sessionId) {
+        await this.ensureInitialized();
+        const { Session, Node } = await this.getModels();
+
+        const session = await Session.findByPk(sessionId);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        // Chiudi altre sessioni attive
+        await Session.update(
+            { isActive: false, endedAt: new Date() },
+            { where: { isActive: true } }
+        );
+
+        // Riattiva questa sessione
+        await session.update({ isActive: true, endedAt: null });
+
+        // Conta nodi creati
+        const nodeCount = await Node.count({ where: { sessionId } });
+
+        // Recupera ultimi nodi
+        const recentNodes = await Node.findAll({
+            where: { sessionId },
+            order: [['created_at', 'DESC']],
+            limit: 10
+        });
+
+        this.activeSessionId = session.id;
+
+        return {
+            session_id: session.id,
+            name: session.name,
+            description: session.description,
+            tags: session.tags,
+            started_at: session.startedAt,
+            ended_at: session.endedAt,
+            is_active: session.isActive,
+            context: session.context,
+            nodes_created: nodeCount,
+            recent_nodes: recentNodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                keywords: n.keywords,
+                content_preview: n.content?.substring(0, 100)
+            })),
+            success: true
+        };
+    }
+
+    /**
+     * Chiude la sessione attuale
+     * @param {string} sessionId
+     * @returns {Object}
+     */
+    async endSession(sessionId) {
+        await this.ensureInitialized();
+        const { Session, Node } = await this.getModels();
+
+        const session = await Session.findByPk(sessionId);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        // Calcola statistiche finali
+        const nodeCount = await Node.count({ where: { sessionId } });
+        const skillsCount = await Node.count({ 
+            where: { sessionId, type: 'skill' } 
+        });
+
+        // Calcola durata
+        const startTime = new Date(session.startedAt).getTime();
+        const endTime = Date.now();
+        const durationMinutes = Math.round((endTime - startTime) / 60000);
+
+        // Aggiorna sessione
+        await session.update({
+            isActive: false,
+            endedAt: new Date(),
+            stats: {
+                nodesCreated: nodeCount,
+                skillsRegistered: skillsCount,
+                skillsUsed: session.stats?.skillsUsed || 0,
+                durationMinutes
+            }
+        });
+
+        if (this.activeSessionId === sessionId) {
+            this.activeSessionId = null;
+        }
+
+        return {
+            session_id: session.id,
+            name: session.name,
+            stats: {
+                nodes_created: nodeCount,
+                skills_registered: skillsCount,
+                skills_used: session.stats?.skillsUsed || 0,
+                duration_minutes: durationMinutes
+            },
+            ended_at: session.endedAt,
+            success: true
+        };
+    }
+
+    /**
+     * Lista sessioni con filtri
+     * @param {Object} params
+     * @returns {Array}
+     */
+    async listSessions({
+        limit = 20,
+        includeEnded = false,
+        tags = [],
+        projectPath = null
+    }) {
+        await this.ensureInitialized();
+        const { Session } = await this.getModels();
+
+        const where = {};
+        
+        if (!includeEnded) {
+            where.isActive = true;
+        }
+        
+        if (projectPath) {
+            where.projectPath = projectPath;
+        }
+
+        const sessions = await Session.findAll({
+            where,
+            order: [['started_at', 'DESC']],
+            limit
+        });
+
+        // Filtra per tag se specificati
+        let results = sessions;
+        if (tags.length > 0) {
+            results = sessions.filter(s => {
+                const sessionTags = Array.isArray(s.tags) ? s.tags : [];
+                return tags.some(t => sessionTags.includes(t));
+            });
+        }
+
+        return results.map(s => ({
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            tags: s.tags,
+            started_at: s.startedAt,
+            ended_at: s.endedAt,
+            is_active: s.isActive,
+            stats: s.stats
+        }));
+    }
+
+    // ==================== NODE MANAGEMENT ====================
 
     /**
      * Aggiunge un nodo alla memoria
      * @param {Object} params
-     * @returns {Object} { node_id, confidence_score }
+     * @returns {Object} - { node_id, confidence_score }
      */
     async addNode({
-                      projectId,
-                      keywords = [],
-                      content = '',
-                      type = 'generic',
-                      parentId = null,
-                      metadata = {},
-                      weight = 1.0
-                  }) {
-        const {Node} = await this.getModels(projectId);
+        sessionId = null,
+        keywords = [],
+        content = '',
+        type = 'generic',
+        parentId = null,
+        metadata = {},
+        weight = 1.0
+    }) {
+        const models = await this.getModels();
+        const { Node, Session } = models;
+
+        // Usa sessione attiva se non specificata
+        const effectiveSessionId = sessionId || this.activeSessionId;
 
         // Calcola profondità
         let depth = 0;
@@ -193,7 +307,7 @@ class MemoryService {
 
         // Crea il nodo
         const node = await Node.create({
-            projectId,
+            sessionId: effectiveSessionId,
             parentId,
             type,
             keywords,
@@ -205,15 +319,20 @@ class MemoryService {
         });
 
         // Aggiorna FTS5
-        await this.updateFTS5(projectId, node);
+        await this.updateFTS5(node);
 
-        // Aggiorna statistiche progetto
-        await this.updateProjectStats(projectId);
+        // Aggiorna statistiche sessione se presente
+        if (effectiveSessionId) {
+            await this.updateSessionStats(effectiveSessionId, {
+                increment: 'nodesCreated'
+            });
+        }
 
         return {
             node_id: node.id,
             type: node.type,
             depth: node.depth,
+            session_id: node.sessionId,
             keywords_count: keywords.length,
             success: true
         };
@@ -221,18 +340,15 @@ class MemoryService {
 
     /**
      * Aggiorna l'indice FTS5 per un nodo
-     * @param {string} projectId
      * @param {Object} node
      */
-    async updateFTS5(projectId, node) {
-        const sequelize = getConnection(projectId);
+    async updateFTS5(node) {
+        const sequelize = getConnection();
 
-        // Inserisci/aggiorna nel FTS (SQLite specifico)
-        // @ts-ignore - FTS5 non è supportato nativamente da Sequelize
         await sequelize.query(`
-      INSERT INTO nodes_fts(node_id, keywords, content)
-      VALUES (?, ?, ?)
-    `, {
+            INSERT INTO nodes_fts(node_id, keywords, content)
+            VALUES (?, ?, ?)
+        `, {
             replacements: [
                 node.id,
                 JSON.stringify(node.keywords),
@@ -242,56 +358,77 @@ class MemoryService {
     }
 
     /**
+     * Aggiorna statistiche sessione
+     * @param {string} sessionId
+     * @param {Object} updates
+     */
+    async updateSessionStats(sessionId, updates) {
+        const { Session, Node } = await this.getModels();
+        
+        const session = await Session.findByPk(sessionId);
+        if (!session) return;
+
+        const stats = { ...session.stats };
+
+        if (updates.increment === 'nodesCreated') {
+            stats.nodesCreated = (stats.nodesCreated || 0) + 1;
+        } else if (updates.increment === 'skillsRegistered') {
+            stats.skillsRegistered = (stats.skillsRegistered || 0) + 1;
+        } else if (updates.increment === 'skillsUsed') {
+            stats.skillsUsed = (stats.skillsUsed || 0) + 1;
+        }
+
+        await session.update({ stats });
+    }
+
+    /**
      * Cerca nodi per keywords
      * @param {Object} params
-     * @returns {Array} Risultati con confidence score
+     * @returns {Array} - Risultati con confidence score
      */
     async searchNodes({
-                          projectId,
-                          keywords = [],
-                          maxResults = 10,
-                          minConfidence = 0.1,
-                          type = null
-                      }) {
-        const {Node} = await this.getModels(projectId);
+        keywords = [],
+        maxResults = 10,
+        minConfidence = 0.1,
+        type = null,
+        sessionId = null,
+        tags = []
+    }) {
+        const { Node } = await this.getModels();
 
         if (keywords.length === 0) {
             return [];
         }
 
-        // Costruisci query FTS5
         const searchQuery = keywords.join(' OR ');
 
-        let ftsQuery;
+        let ftsQuery = [];
         try {
-            // Query FTS5 per ranking (SQLite specifico)
-            // @ts-ignore - FTS5 non è supportato nativamente da Sequelize
-            const results = await getConnection(projectId).query(`
-        SELECT node_id, bm25(nodes_fts) as bm25_score
-        FROM nodes_fts
-        WHERE nodes_fts MATCH ?
-        ORDER BY bm25(nodes_fts)
-        LIMIT ?
-      `, {
+            const results = await getConnection().query(`
+                SELECT node_id, bm25(nodes_fts) as bm25_score
+                FROM nodes_fts
+                WHERE nodes_fts MATCH ?
+                ORDER BY bm25(nodes_fts)
+                LIMIT ?
+            `, {
                 replacements: [searchQuery, maxResults * 2]
             });
-
             ftsQuery = results[0] || [];
         } catch (error) {
-            // FTS5 potrebbe non essere pronto, usa fallback
             ftsQuery = [];
         }
 
-        // Mappa risultati FTS
         const ftsMap = new Map();
         for (const row of ftsQuery) {
             ftsMap.set(row.node_id, row.bm25_score);
         }
 
-        // Recupera nodi e calcola confidence
-        const whereClause = {projectId};
+        const whereClause = {};
         if (type) {
             whereClause.type = type;
+        }
+        if (sessionId) {
+            whereClause.sessionId = sessionId;
         }
 
         const nodes = await Node.findAll({
@@ -300,7 +437,6 @@ class MemoryService {
             limit: maxResults * 3
         });
 
-        // Calcola confidence per ogni nodo
         const scoredNodes = nodes.map(node => {
             const confidence = this.calculateConfidence(node, keywords, ftsMap);
             return {
@@ -309,13 +445,13 @@ class MemoryService {
                 keywords: node.keywords,
                 content: node.content,
                 depth: node.depth,
+                session_id: node.sessionId,
                 parent_id: node.parentId,
                 confidence: Math.round(confidence * 100) / 100,
                 created_at: node.created_at
             };
         });
 
-        // Filtra per confidence minima e ordina
         return scoredNodes
             .filter(n => n.confidence >= minConfidence)
             .sort((a, b) => b.confidence - a.confidence)
@@ -327,7 +463,7 @@ class MemoryService {
      * @param {Object} node
      * @param {Array} searchKeywords
      * @param {Map} ftsMap
-     * @returns {number} Confidence 0.0 - 1.0
+     * @returns {number} - Confidence 0.0 - 1.0
      */
     calculateConfidence(node, searchKeywords, ftsMap) {
         let score = 0;
@@ -348,7 +484,7 @@ class MemoryService {
         if (!Array.isArray(keywords)) {
             keywords = [];
         }
-        const matchedKeywords = (keywords).filter(k =>
+        const matchedKeywords = keywords.filter(k =>
             searchKeywords.some(sk =>
                 k.toLowerCase().includes(sk.toLowerCase()) ||
                 sk.toLowerCase().includes(k.toLowerCase())
@@ -366,11 +502,12 @@ class MemoryService {
 
         // 4. Type bonus rafforzato per categorie semantiche (0-0.15)
         const typeScores = {
-            'error': 0.15,        // Errori sono importanti!
-            'operation': 0.14,     // How-to molto utili
-            'convention': 0.13,    // Convenzioni sempre utili
-            'edge_case': 0.12,     // Edge cases preziosi
-            'pattern': 0.11,       // Pattern architetturali
+            'error': 0.15,
+            'skill': 0.15,        // Skills sono importanti!
+            'operation': 0.14,
+            'convention': 0.13,
+            'edge_case': 0.12,
+            'pattern': 0.11,
             'task': 0.10,
             'action': 0.09,
             'entity': 0.07,
@@ -388,45 +525,39 @@ class MemoryService {
     }
 
     /**
-     * Ottiene contesto di un nodo (navigazione gerarchica)
+     * Ottiene contesto di un nodo
      * @param {Object} params
      * @returns {Object}
      */
-    async getNodeContext({projectId, nodeId, depth = 1}) {
-        const {Node, Link} = await this.getModels(projectId);
+    async getNodeContext({ nodeId, depth = 1 }) {
+        const { Node, Link } = await this.getModels();
 
         const node = await Node.findByPk(nodeId);
         if (!node) {
             throw new Error('Node not found');
         }
 
-        // Breadcrumbs (percorso verso la radice)
-        const breadcrumbs = await this.getBreadcrumbs(projectId, nodeId);
-
-        // Figli diretti
+        const breadcrumbs = await this.getBreadcrumbs(nodeId);
         const children = await Node.findAll({
-            where: {parentId: nodeId},
+            where: { parentId: nodeId },
             order: [['created_at', 'DESC']]
         });
 
-        // Link in uscita (senza include per evitare errori di associazione)
         const outgoingLinks = await Link.findAll({
-            where: {fromNodeId: nodeId}
+            where: { fromNodeId: nodeId }
         });
 
-        // Recupera nodi target per i link
         const targetIds = outgoingLinks.map(l => l.toNodeId);
         const targetNodes = targetIds.length > 0
-            ? await Node.findAll({where: {id: targetIds}})
+            ? await Node.findAll({ where: { id: targetIds } })
             : [];
         const nodeMap = new Map(targetNodes.map(n => [n.id, n]));
 
-        // Se depth > 1, recupera anche nipoti
         let grandchildren = [];
         if (depth > 1 && children.length > 0) {
             const childIds = children.map(c => c.id);
             grandchildren = await Node.findAll({
-                where: {parentId: childIds},
+                where: { parentId: childIds },
                 limit: 20,
                 order: [['created_at', 'DESC']]
             });
@@ -440,6 +571,7 @@ class MemoryService {
                 content: node.content,
                 metadata: node.metadata,
                 depth: node.depth,
+                session_id: node.sessionId,
                 weight: node.weight,
                 created_at: node.created_at
             },
@@ -472,13 +604,12 @@ class MemoryService {
     }
 
     /**
-     * Ottiene breadcrumbs per un nodo (percorso radice -> nodo)
-     * @param {string} projectId
+     * Ottiene breadcrumbs per un nodo
      * @param {string} nodeId
      * @returns {Array}
      */
-    async getBreadcrumbs(projectId, nodeId) {
-        const {Node} = await this.getModels(projectId);
+    async getBreadcrumbs(nodeId) {
+        const { Node } = await this.getModels();
         const breadcrumbs = [];
         let currentId = nodeId;
         const visited = new Set();
@@ -505,19 +636,16 @@ class MemoryService {
      * @param {Object} params
      * @returns {Object}
      */
-    async linkNodes({projectId, fromNodeId, toNodeId, linkType = 'related', weight = 1.0}) {
-        const {Link} = await this.getModels(projectId);
-        if (!Link) {
-            throw new Error('Link model not available');
-        }
+    async linkNodes({ fromNodeId, toNodeId, linkType = 'related', weight = 1.0 }) {
+        const { Link } = await this.getModels();
 
         const [link, created] = await Link.findOrCreate({
-            where: {fromNodeId, toNodeId},
-            defaults: {linkType, weight}
+            where: { fromNodeId, toNodeId },
+            defaults: { linkType, weight }
         });
 
         if (!created) {
-            await link.update({linkType, weight});
+            await link.update({ linkType, weight });
         }
 
         return {
@@ -533,8 +661,8 @@ class MemoryService {
      * @param {Object} params
      * @returns {Object}
      */
-    async updateNode({projectId, nodeId, keywords, content, metadata, weight}) {
-        const {Node} = await this.getModels(projectId);
+    async updateNode({ nodeId, keywords, content, metadata, weight }) {
+        const { Node } = await this.getModels();
 
         const node = await Node.findByPk(nodeId);
         if (!node) {
@@ -559,140 +687,595 @@ class MemoryService {
     }
 
     /**
-     * Elimina un nodo (con cascade opzionale)
+     * Elimina un nodo
      * @param {Object} params
      */
-    async deleteNode({projectId, nodeId, cascade = false}) {
-        const {Node, Link} = await this.getModels(projectId);
+    async deleteNode({ nodeId, cascade = false }) {
+        const { Node, Link } = await this.getModels();
 
         if (cascade) {
-            // Elimina figli ricorsivamente
-            await this.deleteChildren(projectId, nodeId);
+            await this.deleteChildren(nodeId);
         } else {
-            // Sposta figli al parent del nodo eliminato
             const node = await Node.findByPk(nodeId);
             if (node) {
                 await Node.update(
-                    {parentId: node.parentId},
-                    {where: {parentId: nodeId}}
+                    { parentId: node.parentId },
+                    { where: { parentId: nodeId } }
                 );
             }
         }
 
-        // Elimina link
-        await Link.destroy({
-            where: {fromNodeId: nodeId}
-        });
-        await Link.destroy({
-            where: {toNodeId: nodeId}
-        });
+        await Link.destroy({ where: { fromNodeId: nodeId } });
+        await Link.destroy({ where: { toNodeId: nodeId } });
+        await Node.destroy({ where: { id: nodeId } });
 
-        // Elimina nodo
-        await Node.destroy({where: {id: nodeId}});
-
-        return {deleted: true, nodeId};
+        return { deleted: true, nodeId };
     }
 
-    /**
-     * Elimina figli ricorsivamente
-     * @param {string} projectId
-     * @param {string} parentId
-     */
-    async deleteChildren(projectId, parentId) {
-        const {Node} = await this.getModels(projectId);
-        const children = await Node.findAll({where: {parentId}});
+    async deleteChildren(parentId) {
+        const { Node } = await this.getModels();
+        const children = await Node.findAll({ where: { parentId } });
 
         for (const child of children) {
-            await this.deleteChildren(projectId, child.id);
+            await this.deleteChildren(child.id);
             await child.destroy();
         }
     }
 
+    // ==================== SKILLS MANAGEMENT ====================
+
     /**
-     * Ottiene statistiche progetto
-     * @param {string} projectId
+     * Registra una skill con schema rigido
+     * @param {Object} params
      * @returns {Object}
      */
-    async getProjectStats(projectId) {
-        // Assicura che il master DB sia pronto
-        await this.ensureMasterDb();
+    async registerSkill({
+        name,
+        framework,
+        language,
+        filePattern,
+        learnSteps = [],
+        useCases = [],
+        implementation = '',
+        examples = [],
+        prerequisites = [],
+        keywords = [],
+        content = ''
+    }) {
+        const { Node } = await this.getModels();
 
-        // Per le statistiche usiamo il master DB
-        const masterModels = await this.getModels('master');
-        const projectModels = await this.getModels(projectId);
+        // Costruisci il contenuto strutturato
+        const structuredContent = content || `SKILL: ${name}\n\n` +
+            `FRAMEWORK: ${framework}\n` +
+            `LANGUAGE: ${language}\n` +
+            `FILE PATTERN: ${filePattern}\n\n` +
+            `LEARN STEPS:\n${learnSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n` +
+            `USE CASES:\n${useCases.map(u => `- ${u}`).join('\n')}\n\n` +
+            (implementation ? `IMPLEMENTATION:\n${implementation}` : '');
 
-        const project = await masterModels.Project.findByPk(projectId);
-        if (!project) {
-            throw new Error('Project not found');
-        }
+        // Costruisci keywords combinate
+        const allKeywords = [
+            name.toLowerCase(),
+            framework.toLowerCase(),
+            language.toLowerCase(),
+            ...filePattern.toLowerCase().split(/[\/\-\.]/).filter(Boolean),
+            ...keywords
+        ];
 
-        const nodeCount = await projectModels.Node.count({where: {projectId}});
-        const linkCount = await projectModels.Link.count();
+        // Metadati strutturati per la skill
+        const metadata = {
+            framework,
+            language,
+            filePattern,
+            learnSteps,
+            useCases,
+            implementation,
+            examples,
+            prerequisites,
+            confidence: 0.5,
+            usageCount: 0
+        };
 
-        // Raggruppa per tipo - approccio semplice
-        const allNodes = await projectModels.Node.findAll({where: {projectId}});
-        const types = {};
-        for (const node of allNodes) {
-            types[node.type] = (types[node.type] || 0) + 1;
-        }
+        const sessionId = this.activeSessionId;
 
-        // Ultimo nodo creato
-        const lastNode = await projectModels.Node.findOne({
-            where: {projectId},
-            order: [['created_at', 'DESC']]
+        const node = await Node.create({
+            sessionId,
+            type: 'skill',
+            keywords: allKeywords,
+            content: structuredContent,
+            metadata,
+            weight: 1.5,
+            keywordCount: allKeywords.length
         });
 
+        await this.updateFTS5(node);
+
+        if (sessionId) {
+            await this.updateSessionStats(sessionId, {
+                increment: 'skillsRegistered'
+            });
+        }
+
         return {
-            project_id: projectId,
-            project_name: project.name,
-            total_nodes: nodeCount,
-            total_links: linkCount,
-            types: types,
-            last_activity: lastNode?.created_at || project.created_at
+            skill_id: node.id,
+            name,
+            framework,
+            language,
+            file_pattern: filePattern,
+            learn_steps: learnSteps,
+            use_cases: useCases,
+            confidence: 0.5,
+            success: true
         };
     }
 
     /**
-     * Aggiorna statistiche progetto
-     * @param {string} projectId
+     * Applica/suggerisci skill basata su keywords
+     * @param {Object} params
+     * @returns {Object}
      */
-    async updateProjectStats(projectId) {
-        // Trova il projectId dal master DB
-        await this.ensureMasterDb();
-        const {Project} = await this.getModels('master');
-        const {Node} = await this.getModels(projectId);
+    async applySkill({ keywords = [], context = '', domain = null }) {
+        // Cerca skills matching
+        const results = await this.searchNodes({
+            keywords,
+            maxResults: 5,
+            minConfidence: 0.3,
+            type: 'skill'
+        });
 
-        const count = await Node.count({where: {projectId}});
+        if (results.length === 0) {
+            return {
+                matched: false,
+                message: 'Nessuna skill trovata per le keywords specificate',
+                suggestions: []
+            };
+        }
 
-        await Project.update(
-            {
-                stats: {
-                    totalNodes: count,
-                    lastActivity: new Date()
-                }
-            },
-            {where: {id: projectId}}
+        // Filtra per domain se specificato
+        let skills = results;
+        if (domain) {
+            skills = results.filter(r => {
+                const meta = r.metadata || {};
+                return meta.language?.toLowerCase() === domain.toLowerCase() ||
+                       meta.framework?.toLowerCase().includes(domain.toLowerCase());
+            });
+        }
+
+        // Recupera dettagli skill
+        const { Node } = await this.getModels();
+        const detailedSkills = await Promise.all(
+            skills.slice(0, 3).map(async (r) => {
+                const node = await Node.findByPk(r.node_id);
+                return {
+                    skill_id: node.id,
+                    name: node.keywords?.[0] || node.content?.split('\n')[0],
+                    keywords: node.keywords,
+                    framework: node.metadata?.framework,
+                    language: node.metadata?.language,
+                    file_pattern: node.metadata?.filePattern,
+                    learn_steps: node.metadata?.learnSteps || [],
+                    implementation: node.metadata?.implementation,
+                    confidence: r.confidence
+                };
+            })
         );
+
+        const bestMatch = detailedSkills[0];
+
+        // Incrementa usage count
+        if (bestMatch) {
+            const node = await Node.findByPk(bestMatch.skill_id);
+            if (node) {
+                const meta = node.metadata || {};
+                await node.update({
+                    metadata: {
+                        ...meta,
+                        usageCount: (meta.usageCount || 0) + 1,
+                        lastUsedAt: new Date().toISOString()
+                    }
+                });
+            }
+
+            const sessionId = this.activeSessionId;
+            if (sessionId) {
+                await this.updateSessionStats(sessionId, {
+                    increment: 'skillsUsed'
+                });
+            }
+        }
+
+        return {
+            matched: true,
+            skill_id: bestMatch?.skill_id,
+            name: bestMatch?.name,
+            framework: bestMatch?.framework,
+            language: bestMatch?.language,
+            file_pattern: bestMatch?.file_pattern,
+            learn_steps: bestMatch?.learn_steps,
+            implementation: bestMatch?.implementation,
+            confidence: bestMatch?.confidence,
+            all_matches: detailedSkills
+        };
     }
 
     /**
-     * Suggerisce nodi basati su contesto
+     * Suggerisci skills basate su contesto
      * @param {Object} params
      * @returns {Array}
      */
-    async suggestNodes({projectId, currentKeywords = [], maxResults = 5}) {
-        const {Node} = await this.getModels(projectId);
-
-        // Cerca nodi che condividono keywords
-        // Cerca nodi che condividono keywords
+    async suggestSkills({ currentKeywords = [], maxResults = 5, domain = null }) {
         const results = await this.searchNodes({
-            projectId,
+            keywords: currentKeywords,
+            maxResults: maxResults * 2,
+            minConfidence: 0.2,
+            type: 'skill'
+        });
+
+        let skills = results;
+        if (domain) {
+            skills = results.filter(r => {
+                const meta = r.metadata || {};
+                return meta.language?.toLowerCase() === domain.toLowerCase() ||
+                       meta.framework?.toLowerCase().includes(domain.toLowerCase());
+            });
+        }
+
+        return skills.slice(0, maxResults).map(r => ({
+            skill_id: r.node_id,
+            type: r.type,
+            keywords: r.keywords,
+            framework: r.metadata?.framework,
+            language: r.metadata?.language,
+            confidence: r.confidence,
+            reason: `Condivide ${r.keywords.filter(k =>
+                currentKeywords.some(ck => ck.toLowerCase() === k.toLowerCase())
+            ).length} keyword(s)`
+        }));
+    }
+
+    // ==================== CONTEXT MANAGEMENT ====================
+
+    /**
+     * Salva snapshot contesto dettagliato
+     * @param {Object} params
+     * @returns {Object}
+     */
+    async saveContextSnapshot({
+        sessionId,
+        summary = '',
+        workDone = {},
+        pendingTasks = [],
+        keyDecisions = [],
+        blockers = [],
+        learnings = [],
+        nextSteps = []
+    }) {
+        const { Node } = await this.getModels();
+        
+        const effectiveSessionId = sessionId || this.activeSessionId;
+        if (!effectiveSessionId) {
+            throw new Error('Nessuna sessione attiva');
+        }
+
+        const content = JSON.stringify({
+            summary,
+            workDone,
+            pendingTasks,
+            keyDecisions,
+            blockers,
+            learnings,
+            nextSteps,
+            savedAt: new Date().toISOString()
+        }, null, 2);
+
+        const node = await Node.create({
+            sessionId: effectiveSessionId,
+            type: 'context_snapshot',
+            keywords: ['context-snapshot', 'summary', effectiveSessionId],
+            content,
+            metadata: {
+                summary,
+                pendingTasksCount: pendingTasks.length,
+                blockersCount: blockers.length,
+                learningsCount: learnings.length
+            },
+            weight: 2.0
+        });
+
+        await this.updateFTS5(node);
+
+        return {
+            snapshot_id: node.id,
+            session_id: effectiveSessionId,
+            summary,
+            pending_tasks_count: pendingTasks.length,
+            success: true
+        };
+    }
+
+    /**
+     * Recupera contesto compresso
+     * @param {string} snapshotId
+     * @returns {Object}
+     */
+    async restoreContext(snapshotId) {
+        const { Node } = await this.getModels();
+
+        const node = await Node.findByPk(snapshotId);
+        if (!node) {
+            throw new Error('Snapshot not found');
+        }
+
+        try {
+            const context = JSON.parse(node.content);
+            return {
+                snapshot_id: node.id,
+                session_id: node.sessionId,
+                ...context,
+                success: true
+            };
+        } catch (e) {
+            return {
+                snapshot_id: node.id,
+                session_id: node.sessionId,
+                raw_content: node.content,
+                success: false,
+                error: 'Failed to parse context'
+            };
+        }
+    }
+
+    /**
+     * Genera riassunto sessione
+     * @param {string} sessionId
+     * @returns {Object}
+     */
+    async generateSessionSummary(sessionId) {
+        const { Session, Node } = await this.getModels();
+
+        const session = await Session.findByPk(sessionId);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        const nodes = await Node.findAll({
+            where: { sessionId },
+            order: [['created_at', 'ASC']]
+        });
+
+        // Raggruppa per tipo
+        const types = {};
+        for (const node of nodes) {
+            if (!types[node.type]) {
+                types[node.type] = [];
+            }
+            types[node.type].push(node);
+        }
+
+        // Costruisci riassunto
+        const summaries = [];
+        summaries.push(`Sessione: ${session.name}`);
+        summaries.push(`Durata: ${session.stats?.durationMinutes || 0} minuti`);
+        summaries.push(`Nodi creati: ${nodes.length}`);
+        
+        if (types.task?.length) {
+            summaries.push(`Tasks completati: ${types.task.length}`);
+        }
+        if (types.skill?.length) {
+            summaries.push(`Skills apprese: ${types.skill.length}`);
+        }
+        if (types.error?.length) {
+            summaries.push(`Errori risolti: ${types.error.length}`);
+        }
+
+        // Extract pending tasks
+        const pendingTasks = nodes
+            .filter(n => n.type === 'context_snapshot')
+            .flatMap(n => {
+                try {
+                    const ctx = JSON.parse(n.content);
+                    return ctx.pendingTasks || [];
+                } catch {
+                    return [];
+                }
+            });
+
+        return {
+            session_id: sessionId,
+            name: session.name,
+            summary: summaries.join('\n'),
+            stats: session.stats,
+            types_summary: Object.keys(types).map(t => ({
+                type: t,
+                count: types[t].length
+            })),
+            pending_tasks: pendingTasks,
+            node_count: nodes.length
+        };
+    }
+
+    // ==================== REPORTS ====================
+
+    /**
+     * Genera report memoria
+     * @param {Object} params
+     * @returns {Object}
+     */
+    async getMemoryReport({
+        format = 'json',
+        sessions = [],
+        keywords = [],
+        includeStats = true,
+        includeRecentWork = true,
+        includeTopSkills = true
+    }) {
+        const { Session, Node } = await this.getModels();
+
+        const report = {};
+
+        if (includeStats) {
+            const totalNodes = await Node.count();
+            const totalSessions = await Session.count();
+            
+            const byType = await Node.findAll({
+                attributes: ['type'],
+                group: ['type']
+            });
+
+            const typeStats = {};
+            for (const t of byType) {
+                typeStats[t.type] = await Node.count({ where: { type: t.type } });
+            }
+
+            report.stats = {
+                total_nodes: totalNodes,
+                total_sessions: totalSessions,
+                by_type: typeStats
+            };
+        }
+
+        if (includeTopSkills) {
+            const skills = await this.searchNodes({
+                keywords: keywords.length > 0 ? keywords : ['skill'],
+                maxResults: 10,
+                minConfidence: 0.1,
+                type: 'skill'
+            });
+            report.top_skills = skills;
+        }
+
+        if (includeRecentWork) {
+            const recentNodes = await Node.findAll({
+                order: [['created_at', 'DESC']],
+                limit: 20
+            });
+            report.recent_work = recentNodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                keywords: n.keywords,
+                session_id: n.sessionId,
+                created_at: n.created_at
+            }));
+        }
+
+        if (sessions.length > 0 || keywords.length > 0) {
+            const searchResults = await this.searchNodes({
+                keywords,
+                maxResults: 50
+            });
+            report.search_results = searchResults;
+        }
+
+        if (format === 'html') {
+            return this.generateHtmlReport(report);
+        }
+
+        return {
+            report,
+            generated_at: new Date().toISOString(),
+            format
+        };
+    }
+
+    /**
+     * Genera report HTML
+     * @param {Object} report
+     * @returns {string}
+     */
+    generateHtmlReport(report) {
+        return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Neural Memory Report</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; border-bottom: 2px solid #6366f1; padding-bottom: 10px; }
+        h2 { color: #555; margin-top: 30px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .stat-card { background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #6366f1; }
+        .stat-value { font-size: 2em; font-weight: bold; color: #6366f1; }
+        .stat-label { color: #666; margin-top: 5px; }
+        .node-list { list-style: none; padding: 0; }
+        .node-item { background: #fff; border: 1px solid #e5e7eb; padding: 15px; margin: 10px 0; border-radius: 6px; }
+        .node-type { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
+        .type-skill { background: #dbeafe; color: #1e40af; }
+        .type-task { background: #dcfce7; color: #166534; }
+        .type-error { background: #fee2e2; color: #991b1b; }
+        .type-generic { background: #f3f4f6; color: #374151; }
+        .keywords { margin-top: 8px; }
+        .keyword-tag { display: inline-block; background: #e5e7eb; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; margin-right: 5px; }
+        .timestamp { color: #888; font-size: 0.85em; }
+    </style>
+</head>
+<body>
+    <h1>🧠 Neural Memory Report</h1>
+    <p class="timestamp">Generato il: ${new Date().toLocaleString()}</p>
+    
+    <h2>📊 Statistiche</h2>
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-value">${report.stats?.total_nodes || 0}</div>
+            <div class="stat-label">Nodi Totali</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${report.stats?.total_sessions || 0}</div>
+            <div class="stat-label">Sessioni</div>
+        </div>
+    </div>
+    
+    <h2>📈 Nodi per Tipo</h2>
+    <div class="stats">
+        ${Object.entries(report.stats?.by_type || {}).map(([type, count]) => `
+            <div class="stat-card">
+                <div class="stat-value">${count}</div>
+                <div class="stat-label">${type}</div>
+            </div>
+        `).join('')}
+    </div>
+    
+    <h2>🏆 Top Skills</h2>
+    <ul class="node-list">
+        ${(report.top_skills || []).map(s => `
+            <li class="node-item">
+                <span class="node-type type-${s.type}">${s.type}</span>
+                <strong>${s.keywords?.[0] || 'Unknown'}</strong>
+                <div class="keywords">
+                    ${(s.keywords || []).slice(0, 5).map(k => `<span class="keyword-tag">${k}</span>`).join('')}
+                </div>
+                <div class="timestamp">Confidence: ${(s.confidence * 100).toFixed(0)}%</div>
+            </li>
+        `).join('')}
+    </ul>
+    
+    <h2>📝 Lavoro Recente</h2>
+    <ul class="node-list">
+        ${(report.recent_work || []).map(n => `
+            <li class="node-item">
+                <span class="node-type type-${n.type}">${n.type}</span>
+                <div class="keywords">
+                    ${(n.keywords || []).slice(0, 5).map(k => `<span class="keyword-tag">${k}</span>`).join('')}
+                </div>
+                <div class="timestamp">${new Date(n.created_at).toLocaleString()}</div>
+            </li>
+        `).join('')}
+    </ul>
+</body>
+</html>`;
+    }
+
+    /**
+     * Suggerisce nodi rilevanti
+     * @param {Object} params
+     * @returns {Array}
+     */
+    async suggestNodes({ currentKeywords = [], maxResults = 5 }) {
+        const results = await this.searchNodes({
             keywords: currentKeywords,
             maxResults: maxResults * 2,
             minConfidence: 0.2
         });
 
-        // Filtra e restituisci suggerimenti
         return results.slice(0, maxResults).map(r => ({
             node_id: r.node_id,
             type: r.type,

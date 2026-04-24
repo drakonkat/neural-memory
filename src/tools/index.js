@@ -1,505 +1,643 @@
 /**
- * MCP Tools Definitions
- * Definisce tutti gli strumenti esposti dal server MCP
- * Usa il nuovo pattern McpServer.tool() con Zod
+ * MCP Tools v2.0
+ * Strumenti per il Memory Neural Network MCP Server
+ * 
+ * CAMBIAMENTI v2.0:
+ * - Session Management (start, resume, end session)
+ * - Skills Framework con schema rigido
+ * - Context Compression
+ * - Reports HTML
  */
 
-import { z } from "zod";
-import memoryService from "../services/memory.js";
-import { readLocalProjectId } from "../services/project-helper.js";
+import memoryService from '../services/memory.js';
 
 /**
- * Tool definitions con schema Zod
+ * Tool: start_session
+ * Inizia una nuova sessione di lavoro
  */
-const toolDefinitions = [
-  // ===== STEP 0: PROJECT RESOLUTION =====
-  {
-    name: "get_or_create_project",
-    description: "Ottiene o crea un progetto di memoria. Scrive automaticamente .neural-memory-id nella directory del progetto per rendere persistenti le successive chiamate. Usa questo tool per primo prima di chiamare gli altri tool.",
-    schema: {
-      name: z.string().describe("Nome del progetto (es: 'my-app', 'neural-memory')"),
-      path: z.string().describe("Percorso del progetto (es: '/path/to/project' o 'E:/Project/mio-progetto')"),
-      description: z.string().optional().describe("Descrizione opzionale del progetto"),
-    },
-  },
-
-  // ===== STEP 1: MVP BASE =====
-  {
-    name: "initialize_project",
-    description: "Inizializza un nuovo progetto di memoria. Ogni progetto ha il proprio database SQLite.",
-    schema: {
-      name: z.string().describe("Nome del progetto (es: 'my-app', 'neural-memory')"),
-      path: z.string().describe("Percorso del progetto (es: '/path/to/project')"),
-      description: z.string().optional().describe("Descrizione opzionale del progetto"),
-    },
-  },
-
-  {
-    name: "add_node",
-    description: "Aggiunge un nodo alla memoria del progetto. Usa keywords per facilitare la ricerca futura.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      keywords: z.array(z.string()).optional().describe("Array di keywords per identificare il nodo"),
-      content: z.string().optional().describe("Contenuto long-text descrittivo del task/azione"),
-      type: z.enum([
-        "task", "entity", "file", "concept", "summary", "action", "generic",
-        "error", "edge_case", "operation", "convention", "pattern"
-      ]).optional().describe("Tipo di nodo: task=da fare, error=errore ricorrente, edge_case=caso limite, operation=how-to, convention=regola di stile, pattern=pattern architetturale"),
-      parent_id: z.string().nullable().optional().describe("ID del nodo padre (per gerarchia)"),
-      weight: z.number().optional().describe("Peso per il ranking (0.1 - 10.0)"),
-      metadata: z.record(z.unknown()).optional().describe("Metadati aggiuntivi"),
-    },
-  },
-
-  {
-    name: "search_nodes",
-    description: "Cerca nodi nella memoria usando keywords. Restituisce risultati con confidence score.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      keywords: z.array(z.string()).describe("Keywords da cercare"),
-      max_results: z.number().optional().describe("Numero massimo di risultati"),
-      min_confidence: z.number().optional().describe("Confidenza minima (0.0 - 1.0)"),
-      type: z.string().optional().describe("Filtra per tipo di nodo"),
-    },
-  },
-
-  // ===== STEP 2: NAVIGAZIONE =====
-  {
-    name: "get_node_context",
-    description: "Ottiene il contesto di un nodo: genitori, figli, collegamenti e percorsi.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      node_id: z.string().describe("ID del nodo"),
-      depth: z.number().optional().describe("Profondità di navigazione (1-3)"),
-    },
-  },
-
-  {
-    name: "get_project_stats",
-    description: "Ottiene statistiche del progetto: numero nodi, tipi, ultima attività.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-    },
-  },
-
-  // ===== STEP 3: LINKING =====
-  {
-    name: "link_nodes",
-    description: "Crea un collegamento tra due nodi.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      from_node_id: z.string().describe("ID del nodo sorgente"),
-      to_node_id: z.string().describe("ID del nodo destinazione"),
-      link_type: z.enum(["child", "parent", "related", "reference", "trigger", "caused"]).optional().describe("Tipo di collegamento"),
-      weight: z.number().optional().describe("Peso del collegamento"),
-    },
-  },
-
-  {
-    name: "suggest_nodes",
-    description: "Suggerisce nodi rilevanti basati su keywords correnti.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      current_keywords: z.array(z.string()).optional().describe("Keywords del contesto attuale"),
-      max_results: z.number().optional().describe("Numero massimo di suggerimenti"),
-    },
-  },
-
-  // ===== STEP 4: CATEGORIE SEMANTICHE =====
-
-  /**
-   * add_error - Errori ricorrenti su cui hai sbattuto la testa
-   */
-  {
-    name: "add_error",
-    description: "Registra un errore ricorrente che hai risolto. Utile per non sbattere la testa la prossima volta nya~",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto"),
-      path: z.string().optional().describe("Percorso del progetto"),
-      error_code: z.string().optional().describe("Codice errore (es. 'E001', 'ENOENT')"),
-      error_message: z.string().describe("Messaggio di errore completo"),
-      solution: z.string().describe("Come hai risolto l'errore"),
-      keywords: z.array(z.string()).optional().describe("Tecnologie/area (es. ['nodejs', 'database'])"),
-      context: z.string().optional().describe("Quando si verifica (es. 'su Windows', 'in produzione')"),
-      parent_id: z.string().nullable().optional().describe("ID del nodo padre per organizzazione gerarchica"),
-      weight: z.number().optional().describe("Peso per il ranking (default 2.0 per errori frequenti)"),
-    },
-  },
-
-  /**
-   * add_operation - Come fare X (how-to)
-   */
-  {
-    name: "add_operation",
-    description: "Registra un'operazione che hai imparato, tipo 'come aggiungere un campo a un database'. Documenta il flusso step-by-step.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto"),
-      path: z.string().optional().describe("Percorso del progetto"),
-      operation_name: z.string().describe("Nome dell'operazione (es. 'Aggiungere campo a tabella')"),
-      steps: z.array(z.string()).describe("Passi per completare l'operazione"),
-      prerequisites: z.array(z.string()).optional().describe("Cosa serve prima (es. ['database avviato'])"),
-      notes: z.string().optional().describe("Note aggiuntive o caveats"),
-      keywords: z.array(z.string()).describe("Keywords (es. ['database', 'migration', 'sql'])"),
-      parent_id: z.string().nullable().optional().describe("ID del nodo padre per organizzazione gerarchica"),
-    },
-  },
-
-  /**
-   * add_convention - Regole di stile e nomenclatura
-   */
-  {
-    name: "add_convention",
-    description: "Registra una convenzione di naming o stile del progetto. Es. 'tutto camelCase', 'file .env in root'.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto"),
-      path: z.string().optional().describe("Percorso del progetto"),
-      convention_name: z.string().describe("Nome della convenzione (es. 'Naming CamelCase')"),
-      rule: z.string().describe("La regola esatta (es. 'Le variabili in JS usano camelCase')"),
-      applies_to: z.array(z.string()).describe("A cosa si applica (es. ['variabili javascript', 'nomi funzioni'])"),
-      examples: z.array(z.string()).optional().describe("Esempi: ['correcto', 'sbagliato']"),
-      keywords: z.array(z.string()).optional().describe("Keywords (es. ['javascript', 'naming', 'codestyle'])"),
-      parent_id: z.string().nullable().optional().describe("ID del nodo padre per organizzazione gerarchica"),
-    },
-  },
-
-  /**
-   * add_edge_case - Casi limite scoperti
-   */
-  {
-    name: "add_edge_case",
-    description: "Registra un caso limite o edge case che hai scoperto. Quei casi sfortunati che capitano una volta su mille nya~",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto"),
-      path: z.string().optional().describe("Percorso del progetto"),
-      scenario: z.string().describe("Lo scenario in cui si verifica (es. 'Valore nullo in campo obbligatorio')"),
-      behavior: z.string().describe("Cosa succede (comportamento inaspettato)"),
-      workaround: z.string().optional().describe("Come hai aggirato il problema"),
-      keywords: z.array(z.string()).describe("Keywords (es. ['null', 'validation', 'database'])"),
-      parent_id: z.string().nullable().optional().describe("ID del nodo padre per organizzazione gerarchica"),
-    },
-  },
-
-  /**
-   * add_pattern - Pattern architetturali o design patterns
-   */
-  {
-    name: "add_pattern",
-    description: "Registra un pattern architetturale o design pattern che usi nel progetto.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto"),
-      path: z.string().optional().describe("Percorso del progetto"),
-      pattern_name: z.string().describe("Nome del pattern (es. 'Repository Pattern', 'Event Sourcing')"),
-      description: z.string().describe("Spiegazione del pattern"),
-      use_case: z.string().optional().describe("Quando usarlo"),
-      implementation: z.string().optional().describe("Come implementarlo in questo progetto"),
-      keywords: z.array(z.string()).describe("Keywords (es. ['architecture', 'database', 'clean-code'])"),
-      parent_id: z.string().nullable().optional().describe("ID del nodo padre per organizzazione gerarchica"),
-    },
-  },
-
-  // ===== STEP 5: MANAGEMENT =====
-  {
-    name: "update_node",
-    description: "Aggiorna un nodo esistente.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      node_id: z.string().describe("ID del nodo da aggiornare"),
-      keywords: z.array(z.string()).optional().describe("Nuove keywords"),
-      content: z.string().optional().describe("Nuovo contenuto"),
-      weight: z.number().optional().describe("Nuovo peso"),
-      metadata: z.record(z.unknown()).optional().describe("Nuovi metadati"),
-    },
-  },
-
-  {
-    name: "delete_node",
-    description: "Elimina un nodo. Con cascade=true elimina anche i figli.",
-    schema: {
-      project_id: z.string().optional().describe("ID del progetto (se non specificato, deduce dal file .neural-memory-id o dal path)"),
-      path: z.string().optional().describe("Percorso del progetto (usa questo se project_id non è specificato)"),
-      node_id: z.string().describe("ID del nodo da eliminare"),
-      cascade: z.boolean().optional().describe("Elimina anche i nodi figli"),
-    },
-  },
-];
+async function startSession({ name, description, tags, projectPath, initialContext }) {
+  try {
+    const result = await memoryService.startSession({
+      name,
+      description: description || '',
+      tags: tags || [],
+      projectPath: projectPath || null,
+      initialContext: initialContext || {}
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
 /**
- * Handler per ogni tool - mappa nome -> logica
+ * Tool: resume_session
+ * Riprende una sessione esistente
  */
-const toolHandlers = {
-  async get_or_create_project({ name, path, description = "" }) {
-    const result = await memoryService.getOrCreateProject(name, path, description);
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+async function resumeSession({ sessionId }) {
+  try {
+    const result = await memoryService.resumeSession(sessionId);
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async initialize_project({ name, path, description = "" }) {
-    const result = await memoryService.initializeProject(name, path, description);
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+/**
+ * Tool: end_session
+ * Chiude la sessione attuale
+ */
+async function endSession({ sessionId }) {
+  try {
+    const result = await memoryService.endSession(sessionId);
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async add_node({ project_id, path: projectPath, keywords = [], content = "", type = "generic", parent_id = null, weight = 1.0, metadata = {} }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
+/**
+ * Tool: list_sessions
+ * Lista sessioni con filtri
+ */
+async function listSessions({ limit, includeEnded, tags, projectPath }) {
+  try {
+    const result = await memoryService.listSessions({
+      limit: limit || 20,
+      includeEnded: includeEnded || false,
+      tags: tags || [],
+      projectPath: projectPath || null
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
+
+/**
+ * Tool: add_node
+ * Aggiunge un nodo alla memoria
+ */
+async function addNode({ sessionId, keywords, content, type, parentId, metadata, weight }) {
+  try {
     const result = await memoryService.addNode({
-      projectId: resolvedProjectId,
-      keywords,
-      content,
-      type,
-      parentId: parent_id,
-      weight,
-      metadata,
+      sessionId: sessionId || null,
+      keywords: keywords || [],
+      content: content || '',
+      type: type || 'generic',
+      parentId: parentId || null,
+      metadata: metadata || {},
+      weight: weight || 1.0
     });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async search_nodes({ project_id, path: projectPath, keywords = [], max_results = 10, min_confidence = 0.1, type = null }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
-    const results = await memoryService.searchNodes({
-      projectId: resolvedProjectId,
-      keywords,
-      maxResults: max_results,
-      minConfidence: min_confidence,
-      type,
+/**
+ * Tool: search_nodes
+ * Cerca nodi per keywords
+ */
+async function searchNodes({ keywords, maxResults, minConfidence, type, sessionId }) {
+  try {
+    const result = await memoryService.searchNodes({
+      keywords: keywords || [],
+      maxResults: maxResults || 10,
+      minConfidence: minConfidence || 0.1,
+      type: type || null,
+      sessionId: sessionId || null
     });
-    return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async get_node_context({ project_id, path: projectPath, node_id, depth = 1 }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
-    const result = await memoryService.getNodeContext({ projectId: resolvedProjectId, nodeId: node_id, depth });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+/**
+ * Tool: get_node_context
+ * Ottiene contesto di un nodo
+ */
+async function getNodeContext({ nodeId, depth }) {
+  try {
+    const result = await memoryService.getNodeContext({
+      nodeId,
+      depth: depth || 1
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async get_project_stats({ project_id, path: projectPath }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
-    const result = await memoryService.getProjectStats(resolvedProjectId);
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
-
-  async link_nodes({ project_id, path: projectPath, from_node_id, to_node_id, link_type = "related", weight = 1.0 }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
+/**
+ * Tool: link_nodes
+ * Collega due nodi
+ */
+async function linkNodes({ fromNodeId, toNodeId, linkType, weight }) {
+  try {
     const result = await memoryService.linkNodes({
-      projectId: resolvedProjectId,
-      fromNodeId: from_node_id,
-      toNodeId: to_node_id,
-      linkType: link_type,
-      weight,
+      fromNodeId,
+      toNodeId,
+      linkType: linkType || 'related',
+      weight: weight || 1.0
     });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async suggest_nodes({ project_id, path: projectPath, current_keywords = [], max_results = 5 }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
-    const result = await memoryService.suggestNodes({
-      projectId: resolvedProjectId,
-      currentKeywords: current_keywords,
-      maxResults: max_results,
-    });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
-
-  async update_node({ project_id, path: projectPath, node_id, keywords, content, weight, metadata }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
+/**
+ * Tool: update_node
+ * Aggiorna un nodo
+ */
+async function updateNode({ nodeId, keywords, content, metadata, weight }) {
+  try {
     const result = await memoryService.updateNode({
-      projectId: resolvedProjectId,
-      nodeId: node_id,
+      nodeId,
       keywords,
       content,
-      weight,
       metadata,
+      weight
     });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async delete_node({ project_id, path: projectPath, node_id, cascade = false }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found. Call get_or_create_project first with path parameter." }], isError: true };
-    }
+/**
+ * Tool: delete_node
+ * Elimina un nodo
+ */
+async function deleteNode({ nodeId, cascade }) {
+  try {
     const result = await memoryService.deleteNode({
-      projectId: resolvedProjectId,
-      nodeId: node_id,
-      cascade,
+      nodeId,
+      cascade: cascade || false
     });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  // ===== HANDLER CATEGORIE SEMANTICHE =====
+/**
+ * Tool: register_skill
+ * Registra una skill con schema rigido (v2.0)
+ * 
+ * Schema richiesto:
+ * - name: nome della skill
+ * - framework: framework (es. "fastify", "react", "prisma")
+ * - language: linguaggio (es. "javascript", "typescript", "python")
+ * - filePattern: pattern file (es. "*.service.js", "**/*.controller.ts")
+ * - learnSteps: array di passi per imparare la skill
+ * - useCases: array di casi d'uso
+ * - implementation: implementazione dettagliata (opzionale)
+ * - examples: esempi pratici (opzionale)
+ * - prerequisites: prerequisiti (opzionale)
+ * - keywords: keywords aggiuntive (opzionale)
+ */
+async function registerSkill({ name, framework, language, filePattern, learnSteps, useCases, implementation, examples, prerequisites, keywords, content }) {
+  try {
+    const result = await memoryService.registerSkill({
+      name,
+      framework: framework || '',
+      language: language || '',
+      filePattern: filePattern || '',
+      learnSteps: learnSteps || [],
+      useCases: useCases || [],
+      implementation: implementation || '',
+      examples: examples || [],
+      prerequisites: prerequisites || [],
+      keywords: keywords || [],
+      content: content || ''
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async add_error({ project_id, path: projectPath, error_code, error_message, solution, keywords = [], context, parent_id = null, weight = 2.0 }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found." }], isError: true };
+/**
+ * Tool: apply_skill
+ * Applica/suggerisci skill basata su keywords
+ */
+async function applySkill({ keywords, context, domain }) {
+  try {
+    const result = await memoryService.applySkill({
+      keywords: keywords || [],
+      context: context || '',
+      domain: domain || null
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
+
+/**
+ * Tool: suggest_skills
+ * Suggerisci skills basate su contesto
+ */
+async function suggestSkills({ currentKeywords, maxResults, domain }) {
+  try {
+    const result = await memoryService.suggestSkills({
+      currentKeywords: currentKeywords || [],
+      maxResults: maxResults || 5,
+      domain: domain || null
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
+
+/**
+ * Tool: save_context_snapshot
+ * Salva snapshot contesto dettagliato
+ */
+async function saveContextSnapshot({ sessionId, summary, workDone, pendingTasks, keyDecisions, blockers, learnings, nextSteps }) {
+  try {
+    const result = await memoryService.saveContextSnapshot({
+      sessionId: sessionId || null,
+      summary: summary || '',
+      workDone: workDone || {},
+      pendingTasks: pendingTasks || [],
+      keyDecisions: keyDecisions || [],
+      blockers: blockers || [],
+      learnings: learnings || [],
+      nextSteps: nextSteps || []
+    });
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
+
+/**
+ * Tool: restore_context
+ * Recupera contesto compresso
+ */
+async function restoreContext({ snapshotId }) {
+  try {
+    const result = await memoryService.restoreContext(snapshotId);
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
+
+/**
+ * Tool: generate_session_summary
+ * Genera riassunto sessione
+ */
+async function generateSessionSummary({ sessionId }) {
+  try {
+    const result = await memoryService.generateSessionSummary(sessionId);
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
+
+/**
+ * Tool: get_memory_report
+ * Genera report memoria
+ */
+async function getMemoryReport({ format, sessions, keywords, includeStats, includeRecentWork, includeTopSkills }) {
+  try {
+    const result = await memoryService.getMemoryReport({
+      format: format || 'json',
+      sessions: sessions || [],
+      keywords: keywords || [],
+      includeStats: includeStats !== false,
+      includeRecentWork: includeRecentWork !== false,
+      includeTopSkills: includeTopSkills !== false
+    });
+
+    // Se il formato è HTML, restituisci come text
+    if (format === 'html' && typeof result === 'string') {
+      return { success: true, content: [{ type: 'text', text: result }] };
     }
-    const result = await memoryService.addNode({
-      projectId: resolvedProjectId,
-      keywords: [error_code, ...keywords],
-      content: `ERROR: ${error_message}\n\nSOLUTION: ${solution}\n\nCONTEXT: ${context || 'N/A'}`,
-      type: 'error',
-      parentId: parent_id,
-      weight,
-      metadata: { error_code, error_message, solution, context },
-    });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
 
-  async add_operation({ project_id, path: projectPath, operation_name, steps, prerequisites = [], notes, keywords, parent_id = null }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found." }], isError: true };
-    }
-    const stepsText = steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
-    const prereqText = prerequisites.length > 0 ? `PREREQUISITES:\n${prerequisites.map(p => `- ${p}`).join('\n')}\n\n` : '';
-    const result = await memoryService.addNode({
-      projectId: resolvedProjectId,
-      keywords,
-      content: `OPERATION: ${operation_name}\n\n${prereqText}STEPS:\n${stepsText}\n\n${notes ? `NOTES:\n${notes}` : ''}`,
-      type: 'operation',
-      parentId: parent_id,
-    });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async add_convention({ project_id, path: projectPath, convention_name, rule, applies_to, examples, keywords = [], parent_id = null }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found." }], isError: true };
-    }
-    const examplesText = examples && examples.length > 0 ? `\n\nEXAMPLES:\n${examples.map(e => `- ${e}`).join('\n')}` : '';
-    const result = await memoryService.addNode({
-      projectId: resolvedProjectId,
-      keywords: [...convention_name.toLowerCase().split(' '), ...applies_to, ...keywords],
-      content: `CONVENTION: ${convention_name}\n\nRULE: ${rule}\n\nAPPLIES TO: ${applies_to.join(', ')}${examplesText}`,
-      type: 'convention',
-      parentId: parent_id,
+/**
+ * Tool: suggest_nodes
+ * Suggerisce nodi rilevanti
+ */
+async function suggestNodes({ currentKeywords, maxResults }) {
+  try {
+    const result = await memoryService.suggestNodes({
+      currentKeywords: currentKeywords || [],
+      maxResults: maxResults || 5
     });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+    return { success: true, content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { success: false, content: [{ type: 'text', text: `Error: ${error.message}` }] };
+  }
+}
 
-  async add_edge_case({ project_id, path: projectPath, scenario, behavior, workaround, keywords, parent_id = null }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found." }], isError: true };
-    }
-    const result = await memoryService.addNode({
-      projectId: resolvedProjectId,
-      keywords,
-      content: `EDGE CASE: ${scenario}\n\nBEHAVIOR: ${behavior}\n\n${workaround ? `WORKAROUND: ${workaround}` : ''}`,
-      type: 'edge_case',
-      parentId: parent_id,
-      metadata: { scenario, behavior, workaround },
-    });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+/**
+ * TOOL HANDLERS MAP
+ * Mappa tutti i tool handlers per il server MCP
+ */
+export const toolHandlers = {
+  // === SESSION MANAGEMENT ===
+  start_session: startSession,
+  resume_session: resumeSession,
+  end_session: endSession,
+  list_sessions: listSessions,
 
-  async add_pattern({ project_id, path: projectPath, pattern_name, description, use_case, implementation, keywords, parent_id = null }) {
-    const resolvedProjectId = await resolveProjectId(project_id, projectPath);
-    if (!resolvedProjectId) {
-      return { content: [{ type: "text", text: "Project not found." }], isError: true };
-    }
-    const result = await memoryService.addNode({
-      projectId: resolvedProjectId,
-      keywords,
-      content: `PATTERN: ${pattern_name}\n\n${description}\n\n${use_case ? `USE CASE:\n${use_case}\n\n` : ''}${implementation ? `IMPLEMENTATION:\n${implementation}` : ''}`,
-      type: 'pattern',
-      parentId: parent_id,
-      metadata: { pattern_name, description, use_case, implementation },
-    });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  },
+  // === NODE MANAGEMENT ===
+  add_node: addNode,
+  search_nodes: searchNodes,
+  get_node_context: getNodeContext,
+  link_nodes: linkNodes,
+  update_node: updateNode,
+  delete_node: deleteNode,
+
+  // === SKILLS FRAMEWORK ===
+  register_skill: registerSkill,
+  apply_skill: applySkill,
+  suggest_skills: suggestSkills,
+
+  // === CONTEXT MANAGEMENT ===
+  save_context_snapshot: saveContextSnapshot,
+  restore_context: restoreContext,
+  generate_session_summary: generateSessionSummary,
+
+  // === REPORTS ===
+  get_memory_report: getMemoryReport,
+  suggest_nodes: suggestNodes
 };
 
 /**
- * Risolve il project_id: usa direct ID, path, o legge da file locale
- * @param {string|null} projectId - Project ID diretto (opzionale)
- * @param {string|null} projectPath - Path del progetto (opzionale)
- * @returns {Promise<string|null>} - Project ID risolto o null
+ * TOOL DEFININITIONS
+ * Definizioni JSON schema per ogni tool (per capability协商)
  */
-async function resolveProjectId(projectId, projectPath) {
-  // Se ID diretto fornito, usa quello
-  if (projectId) {
-    return projectId;
-  }
-
-  // Prova a risolvere da path o file locale
-  if (projectPath) {
-    return await memoryService.resolveProjectId(projectPath);
-  }
-
-  // Prova a leggere dal file .neural-memory-id nella cwd corrente
-  const cwd = process.cwd();
-  const localId = readLocalProjectId(cwd);
-  if (localId) {
-    return localId;
-  }
-
-  return null;
-}
-
-/**
- * Registra tutti i tool su un server McpServer
- * @param {McpServer} server - Istanza del server MCP
- * @returns {Array} Lista dei tool registrati
- */
-export function registerAllTools(server) {
-  const registeredTools = [];
-
-  for (const tool of toolDefinitions) {
-    server.tool(tool.name, tool.description, tool.schema, async (args) => {
-      try {
-        const handler = toolHandlers[tool.name];
-        if (!handler) {
-          return { content: [{ type: "text", text: `Handler not found for tool: ${tool.name}` }], isError: true };
-        }
-        return await handler(args);
-      } catch (error) {
-        return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
+export const toolDefinitions = [
+  // === SESSION MANAGEMENT ===
+  {
+    name: 'start_session',
+    description: 'Inizia una nuova sessione di lavoro. Ogni sessione traccia il lavoro done, skills apprese, e statistiche.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nome sessione (es. "refactoring API Gateway")' },
+        description: { type: 'string', description: 'Descrizione dettagliata del lavoro pianificato' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tag per categorizzare' },
+        projectPath: { type: 'string', description: 'Percorso progetto (facoltativo)' },
+        initialContext: { type: 'object', description: 'Contesto iniziale snapshot' }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'resume_session',
+    description: 'Riprende una sessione esistente',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'ID della sessione da riprendere' }
+      },
+      required: ['sessionId']
+    }
+  },
+  {
+    name: 'end_session',
+    description: 'Chiude la sessione attuale e genera statistiche finali',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'ID della sessione da chiudere' }
+      },
+      required: ['sessionId']
+    }
+  },
+  {
+    name: 'list_sessions',
+    description: 'Lista sessioni con filtri opzionali',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', default: 20 },
+        includeEnded: { type: 'boolean', default: false },
+        tags: { type: 'array', items: { type: 'string' } },
+        projectPath: { type: 'string' }
       }
-    });
+    }
+  },
 
-    registeredTools.push({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.schema,
-    });
+  // === NODE MANAGEMENT ===
+  {
+    name: 'add_node',
+    description: 'Aggiunge un nodo alla memoria neurale',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Sessione di appartenenza (opzionale)' },
+        keywords: { type: 'array', items: { type: 'string' }, description: 'Keywords per ricerca' },
+        content: { type: 'string', description: 'Contenuto long-text' },
+        type: { type: 'string', enum: ['task', 'entity', 'file', 'concept', 'summary', 'action', 'generic', 'skill', 'error', 'edge_case', 'operation', 'convention', 'pattern', 'context_snapshot'], default: 'generic' },
+        parentId: { type: 'string', description: 'ID nodo padre per gerarchia' },
+        metadata: { type: 'object', description: 'Dati aggiuntivi' },
+        weight: { type: 'number', default: 1.0 }
+      },
+      required: ['keywords']
+    }
+  },
+  {
+    name: 'search_nodes',
+    description: 'Cerca nodi per keywords con confidence scoring',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keywords: { type: 'array', items: { type: 'string' } },
+        maxResults: { type: 'number', default: 10 },
+        minConfidence: { type: 'number', default: 0.1 },
+        type: { type: 'string' },
+        sessionId: { type: 'string' }
+      },
+      required: ['keywords']
+    }
+  },
+  {
+    name: 'get_node_context',
+    description: 'Ottiene contesto completo di un nodo (breadcrumbs, figli, relazioni)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string' },
+        depth: { type: 'number', default: 1 }
+      },
+      required: ['nodeId']
+    }
+  },
+  {
+    name: 'link_nodes',
+    description: 'Crea un collegamento tra due nodi',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromNodeId: { type: 'string' },
+        toNodeId: { type: 'string' },
+        linkType: { type: 'string', enum: ['child', 'parent', 'related', 'reference', 'trigger', 'caused'], default: 'related' },
+        weight: { type: 'number', default: 1.0 }
+      },
+      required: ['fromNodeId', 'toNodeId']
+    }
+  },
+  {
+    name: 'update_node',
+    description: 'Aggiorna un nodo esistente',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string' },
+        keywords: { type: 'array', items: { type: 'string' } },
+        content: { type: 'string' },
+        metadata: { type: 'object' },
+        weight: { type: 'number' }
+      },
+      required: ['nodeId']
+    }
+  },
+  {
+    name: 'delete_node',
+    description: 'Elimina un nodo',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string' },
+        cascade: { type: 'boolean', default: false, description: 'Elimina anche i figli' }
+      },
+      required: ['nodeId']
+    }
+  },
+
+  // === SKILLS FRAMEWORK ===
+  {
+    name: 'register_skill',
+    description: 'Registra una SKILL con schema rigido obbligatorio. Schema: name (obbligatorio), framework, language, filePattern, learnSteps[], useCases[].',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nome della skill (obbligatorio)' },
+        framework: { type: 'string', description: 'Framework (es. fastify, react, prisma)' },
+        language: { type: 'string', description: 'Linguaggio (es. javascript, typescript)' },
+        filePattern: { type: 'string', description: 'Pattern file (es. *.service.js)' },
+        learnSteps: { type: 'array', items: { type: 'string' }, description: 'Passi per imparare' },
+        useCases: { type: 'array', items: { type: 'string' }, description: 'Casi d\'uso' },
+        implementation: { type: 'string', description: 'Implementazione dettagliata' },
+        examples: { type: 'array', items: { type: 'string' } },
+        prerequisites: { type: 'array', items: { type: 'string' } },
+        keywords: { type: 'array', items: { type: 'string' } },
+        content: { type: 'string' }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'apply_skill',
+    description: 'Trova e applica skill basata su keywords e contesto',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keywords: { type: 'array', items: { type: 'string' } },
+        context: { type: 'string' },
+        domain: { type: 'string', description: 'Filtra per linguaggio/framework' }
+      },
+      required: ['keywords']
+    }
+  },
+  {
+    name: 'suggest_skills',
+    description: 'Suggerisce skills rilevanti basate sul contesto corrente',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        currentKeywords: { type: 'array', items: { type: 'string' } },
+        maxResults: { type: 'number', default: 5 },
+        domain: { type: 'string' }
+      },
+      required: ['currentKeywords']
+    }
+  },
+
+  // === CONTEXT MANAGEMENT ===
+  {
+    name: 'save_context_snapshot',
+    description: 'Salva snapshot dettagliato del contesto di lavoro',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        summary: { type: 'string' },
+        workDone: { type: 'object' },
+        pendingTasks: { type: 'array', items: { type: 'string' } },
+        keyDecisions: { type: 'array', items: { type: 'string' } },
+        blockers: { type: 'array', items: { type: 'string' } },
+        learnings: { type: 'array', items: { type: 'string' } },
+        nextSteps: { type: 'array', items: { type: 'string' } }
+      }
+    }
+  },
+  {
+    name: 'restore_context',
+    description: 'Recupera un contesto salvato',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        snapshotId: { type: 'string' }
+      },
+      required: ['snapshotId']
+    }
+  },
+  {
+    name: 'generate_session_summary',
+    description: 'Genera riassunto dettagliato di una sessione',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' }
+      },
+      required: ['sessionId']
+    }
+  },
+
+  // === REPORTS ===
+  {
+    name: 'get_memory_report',
+    description: 'Genera report della memoria in formato JSON o HTML',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', enum: ['json', 'html'], default: 'json' },
+        sessions: { type: 'array', items: { type: 'string' } },
+        keywords: { type: 'array', items: { type: 'string' } },
+        includeStats: { type: 'boolean', default: true },
+        includeRecentWork: { type: 'boolean', default: true },
+        includeTopSkills: { type: 'boolean', default: true }
+      }
+    }
+  },
+  {
+    name: 'suggest_nodes',
+    description: 'Suggerisce nodi rilevanti basati su keywords correnti',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        currentKeywords: { type: 'array', items: { type: 'string' } },
+        maxResults: { type: 'number', default: 5 }
+      },
+      required: ['currentKeywords']
+    }
   }
-
-  return registeredTools;
-}
-
-/**
- * Get tools metadata (per debugging/info)
- */
-export function getToolsMetadata() {
-  return toolDefinitions.map(t => ({
-    name: t.name,
-    description: t.description,
-  }));
-}
+];

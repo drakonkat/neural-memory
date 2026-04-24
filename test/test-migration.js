@@ -1,12 +1,12 @@
 /**
- * Test Automatico per Sistema Migration
- * Verifica che il sistema migration funzioni correttamente
+ * Test Automatico per Sistema Migration v2.0
+ * Verifica che il sistema migration funzioni correttamente con schema unificato
  */
 
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { getConnection, initDataDir } from '../src/database/connection.js';
+import { getConnection, initDataDir, closeConnection } from '../src/database/connection.js';
 import { runMigrations, getCurrentVersion, syncSchema } from '../src/database/migrator.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,7 +39,7 @@ async function cleanTestDb() {
     }
     
     // Rimuovi DB di test se esiste
-    const testDbPath = path.join(dataDir, 'migration-test.sqlite');
+    const testDbPath = path.join(dataDir, 'migration-test-v2.sqlite');
     if (fs.existsSync(testDbPath)) {
         fs.unlinkSync(testDbPath);
     }
@@ -47,7 +47,7 @@ async function cleanTestDb() {
 }
 
 async function runTests() {
-    log('\n🧪 Neural Memory - Test Sistema Migration\n', 'cyan');
+    log('\n🧪 Neural Memory v2.0 - Test Sistema Migration\n', 'cyan');
     log('═'.repeat(50), 'blue');
 
     let passedTests = 0;
@@ -61,7 +61,17 @@ async function runTests() {
         // ============ TEST 1: Prima migration - DB vuoto ============
         log('\n📦 Test 1: Prima migration su DB vuoto', 'yellow');
         
-        const sequelize1 = getConnection('migration-test', testDbPath);
+        // Crea una connessione di test temporanea
+        const { Sequelize } = await import('sequelize');
+        const sequelize1 = new Sequelize({
+            dialect: 'sqlite',
+            storage: testDbPath,
+            logging: false,
+            define: {
+                timestamps: true,
+                underscored: true
+            }
+        });
         
         // Verifica che non ci siano tabelle
         const [tables1] = await sequelize1.query(`
@@ -77,9 +87,10 @@ async function runTests() {
         const [tables2] = await sequelize1.query(`
             SELECT name FROM sqlite_master WHERE type='table'
         `);
-        assert(tables2.length >= 3, `Dovrebbero esserci almeno 3 tabelle (nodes, node_links, schema_info), trovate: ${tables2.length}`);
+        assert(tables2.length >= 4, `Dovrebbero esserci almeno 4 tabelle (sessions, nodes, node_links, schema_info), trovate: ${tables2.length}`);
         
         const tableNames = tables2.map(t => t.name);
+        assert(tableNames.includes('sessions'), 'Tabella sessions dovrebbe esistere (v2.0)');
         assert(tableNames.includes('nodes'), 'Tabella nodes dovrebbe esistere');
         assert(tableNames.includes('node_links'), 'Tabella node_links dovrebbe esistere');
         assert(tableNames.includes('schema_info'), 'Tabella schema_info dovrebbe esistere');
@@ -116,31 +127,41 @@ async function runTests() {
         // ============ TEST 4: Verifica che i dati non vengano cancellati ============
         log('\n📦 Test 4: Verifica persistenza dati tra migration', 'yellow');
         
-        // Inserisci un nodo di test
+        // Inserisci una sessione di test (v2.0 - senza project_id)
+        const testSessionId = 'test-session-123';
+        await sequelize1.query(`
+            INSERT INTO sessions (id, name, description, tags, stats, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `, {
+            replacements: [testSessionId, 'Test Session', 'Test description', '["test"]', '{"nodesCreated":0}', 1]
+        });
+        
+        // Inserisci un nodo di test (v2.0 - con session_id invece di project_id)
         const testNodeId = 'test-node-123';
         await sequelize1.query(`
-            INSERT INTO nodes (id, project_id, type, keywords, content, depth, weight)
+            INSERT INTO nodes (id, session_id, type, keywords, content, depth, weight)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `, {
-            replacements: [testNodeId, 'migration-test', 'test', '["test"]', 'Test content', 0, 1.0]
+            replacements: [testNodeId, testSessionId, 'task', '["test", "v2"]', 'Test content v2.0', 0, 1.0]
         });
         
         // Verifica che il nodo esista
-        const [nodeCheck] = await sequelize1.query(`SELECT id FROM nodes WHERE id = ?`, {
+        const [nodeCheck] = await sequelize1.query(`SELECT id, session_id FROM nodes WHERE id = ?`, {
             replacements: [testNodeId]
         });
         assert(nodeCheck.length === 1, 'Nodo di test dovrebbe esistere');
+        assert(nodeCheck[0].session_id === testSessionId, 'Nodo dovrebbe avere session_id corretto');
         
         // Riesegui migration
         await runMigrations(sequelize1);
         
         // Verifica che il nodo esista ancora
-        const [nodeCheck2] = await sequelize1.query(`SELECT id FROM nodes WHERE id = ?`, {
+        const [nodeCheck2] = await sequelize1.query(`SELECT id, session_id FROM nodes WHERE id = ?`, {
             replacements: [testNodeId]
         });
         assert(nodeCheck2.length === 1, 'Nodo di test dovrebbe esistere ancora dopo migration');
         
-        log('   ✓ Dati preservati tra migration', 'green');
+        log('   ✓ Dati preservati tra migration (schema v2.0)', 'green');
         passedTests++;
 
         // ============ TEST 5: syncSchema fallback ============
@@ -151,40 +172,17 @@ async function runTests() {
         log('   ✓ syncSchema completato senza errori', 'green');
         passedTests++;
 
-        // ============ TEST 6: Integrazione con MemoryService ============
-        log('\n📦 Test 6: Test integrazione con MemoryService', 'yellow');
+        // ============ TEST 6: Verifica schema sessions v2.0 ============
+        log('\n📦 Test 6: Verifica schema sessions (nuovo in v2.0)', 'yellow');
         
-        // Importa dinamicamente per evitare caching
-        const { default: memoryService } = await import('../src/services/memory.js');
-        
-        // Pulisci cache per forzare nuova connessione
-        memoryService.modelsCache.clear();
-        
-        // Inizializza progetto di test
-        const project = await memoryService.initializeProject(
-            'migration-test-project',
-            '/path/to/migration-test',
-            'Test per migration system'
-        );
-        
-        assert(project.success, 'Progetto dovrebbe essere creato con successo');
-        
-        // Aggiungi un nodo
-        const node = await memoryService.addNode({
-            projectId: project.project_id,
-            keywords: ['test', 'migration'],
-            content: 'Test node for migration system',
-            type: 'task'
+        // Verifica che la sessione abbia i campi corretti
+        const [sessionCheck] = await sequelize1.query(`SELECT id, name, is_active, stats FROM sessions WHERE id = ?`, {
+            replacements: [testSessionId]
         });
+        assert(sessionCheck.length === 1, 'Sessione dovrebbe esistere');
+        assert(sessionCheck[0].is_active === 1, 'Sessione dovrebbe essere attiva');
         
-        assert(node.success, 'Nodo dovrebbe essere creato con successo');
-        
-        // Verifica che il nodo sia stato inserito
-        const { Node } = await memoryService.getModels(project.project_id);
-        const foundNode = await Node.findByPk(node.node_id);
-        assert(foundNode !== null, 'Nodo dovrebbe essere trovato nel DB');
-        
-        log('   ✓ Integrazione con MemoryService funziona', 'green');
+        log('   ✓ Schema sessions v2.0 funziona correttamente', 'green');
         passedTests++;
 
         // ============ TEST 7: Verifica FTS5 ============
@@ -195,30 +193,31 @@ async function runTests() {
         `);
         assert(ftsCheck.length === 1, 'Tabella FTS5 dovrebbe esistere');
         
-        // Verifica che il nodo sia indicizzato
-        const [ftsContent] = await sequelize1.query(`SELECT * FROM nodes_fts`);
-        // Il contenuto dipende dall'inserimento nel FTS, ma non deve crashare
-        
         log('   ✓ FTS5 funziona correttamente', 'green');
+        passedTests++;
+
+        // ============ TEST 8: Verifica colonne node v2.0 ============
+        log('\n📦 Test 8: Verifica schema nodes v2.0 (senza project_id)', 'yellow');
+        
+        // Verifica che nodes abbia session_id e NON project_id
+        const [nodeSchema] = await sequelize1.query(`PRAGMA table_info(nodes)`);
+        const nodeColumns = nodeSchema.map(c => c.name);
+        
+        assert(nodeColumns.includes('session_id'), 'nodes dovrebbe avere session_id');
+        assert(!nodeColumns.includes('project_id'), 'nodes NON dovrebbe avere project_id (rimosso in v2.0)');
+        
+        log('   ✓ Schema nodes v2.0 corretto (session_id presente, project_id rimosso)', 'green');
         passedTests++;
 
         // ============ PULIZIA ============
         log('\n🧹 Pulizia database di test...', 'yellow');
         
-        // Chiudi connessioni
-        const { closeConnection } = await import('../src/database/connection.js');
-        await closeConnection('migration-test');
-        await closeConnection(project.project_id);
+        // Chiudi connessione
+        await sequelize1.close();
         
         // Rimuovi file di test
         if (fs.existsSync(testDbPath)) {
             fs.unlinkSync(testDbPath);
-        }
-        
-        // Rimuovi anche il DB del progetto di test
-        const testProjectDb = path.join(__dirname, '../data', `${project.project_id}.sqlite`);
-        if (fs.existsSync(testProjectDb)) {
-            fs.unlinkSync(testProjectDb);
         }
 
     } catch (error) {
@@ -240,7 +239,7 @@ async function runTests() {
 
 // Esegui test
 runTests().then(() => {
-    log('\n🎉 Tutti i test sono passati! Il sistema migration funziona correttamente nya~\n', 'cyan');
+    log('\n🎉 Tutti i test sono passati! Il sistema migration v2.0 funziona correttamente nya~\n', 'cyan');
     process.exit(0);
 }).catch((error) => {
     log(`\n💥 Errore durante i test: ${error.message}`, 'red');
