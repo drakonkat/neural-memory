@@ -2,6 +2,48 @@
 
 **Sistema MCP (Model Context Protocol) per memorizzazione e recupero contestuale della conoscenza.**
 
+---
+
+## 🚀 Prova Neural Memory ORA!
+
+Vuoi provarlo subito nel tuo Cline? Aggiungi questa configurazione al tuo `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "neural-memory": {
+      "timeout": 120,
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@drakonkat/neural-memory"
+      ]
+    }
+  }
+}
+```
+
+### Per uso locale (sviluppo)
+
+```json
+{
+  "mcpServers": {
+    "neural-memory": {
+      "timeout": 120,
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "E:/Project/TND/magic/neural-memory/src/index.js"
+      ]
+    }
+  }
+}
+```
+
+> ⚠️ **Nota:** Sostituisci il path con quello del tuo progetto locale!
+
+---
+
 ## Novità v2.0
 
 ### 🎯 Database Unificato
