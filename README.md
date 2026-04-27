@@ -16,7 +16,8 @@ Vuoi provarlo subito nel tuo Cline? Aggiungi questa configurazione al tuo `cline
       "type": "stdio",
       "command": "npx",
       "args": [
-        "@drakonkat/neural-memory"
+        "-y",
+        "@drakonkat/neural-memory@latest"
       ]
     }
   }
