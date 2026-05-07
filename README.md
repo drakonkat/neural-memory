@@ -1,12 +1,16 @@
 # 🧠 Neural Memory v2.0
 
-**Sistema MCP (Model Context Protocol) per memorizzazione e recupero contestuale della conoscenza.**
+> ⚠️ **IMPORTANT NOTICE**: This is an **experimental MCP (Model Context Protocol)** tool. While it has shown promising results when used locally, it is still under active development and may evolve over time. **Feedback and contributions are highly appreciated!** Please report any issues, suggestions, or feature requests on our [GitHub Issues](https://github.com/drakonkat/neural-memory/issues) page. Your input helps make this tool better for everyone! nya~
 
 ---
 
-## 🚀 Prova Neural Memory ORA!
+**Model Context Protocol (MCP) system for knowledge memorization and contextual retrieval.**
 
-Vuoi provarlo subito nel tuo Cline? Aggiungi questa configurazione al tuo `cline_mcp_settings.json`:
+---
+
+## 🚀 Try Neural Memory NOW!
+
+Want to try it right away in your Cline? Add this configuration to your `cline_mcp_settings.json`:
 
 ```json
 {
@@ -24,7 +28,7 @@ Vuoi provarlo subito nel tuo Cline? Aggiungi questa configurazione al tuo `cline
 }
 ```
 
-### Per uso locale (sviluppo)
+### For Local Development
 
 ```json
 {
@@ -41,160 +45,160 @@ Vuoi provarlo subito nel tuo Cline? Aggiungi questa configurazione al tuo `cline
 }
 ```
 
-> ⚠️ **Nota:** Sostituisci il path con quello del tuo progetto locale!
+> ⚠️ **Note:** Replace the path with your local project path!
 
 ---
 
-## Novità v2.0
+## What's New in v2.0
 
-### 🎯 Database Unificato
-- **No più database separati per progetto!** Tutta la memoria risiede in un unico database SQLite
-- Più veloce, più semplice, zero configurazione
+### 🎯 Unified Database
+- **No more separate databases per project!** All memory resides in a single SQLite database
+- Faster, simpler, zero configuration
 
 ### 📋 Session Management
-- **Inizia/riprendi/chiudi sessioni** di lavoro
-- Tracciamento automatico: nodi creati, skills apprese, durata
-- Snapshot contesto dettagliato
+- **Start/resume/end** work sessions
+- Automatic tracking: nodes created, skills learned, duration
+- Detailed context snapshot
 
 ### 🎓 Skills Framework
-- **Schema rigido** per registrare skills con struttura consistente
+- **Rigid schema** for registering skills with consistent structure
 - `framework`, `language`, `filePattern`, `learnSteps`, `useCases`
-- Suggerimento automatico basato su contesto
+- Automatic context-based suggestions
 
-### 📊 Reports HTML
-- Genera report visivi della tua memoria
-- Statistiche, skills più usate, lavoro recente
+### 📊 HTML Reports
+- Generate visual reports of your memory
+- Statistics, most used skills, recent work
 
 ## Quick Start
 
 ```javascript
 import { initialize, handleMcpRequest } from 'neural-memory';
 
-// Inizializza il servizio
+// Initialize the service
 await initialize();
 
-// Inizia una sessione
+// Start a session
 const session = await handleMcpRequest('start_session', {
   name: 'Refactoring API Gateway',
   tags: ['backend', 'api']
 });
 
-// Registra una skill
+// Register a skill
 await handleMcpRequest('register_skill', {
   name: 'Fastify CRUD API',
   framework: 'fastify',
   language: 'javascript',
   filePattern: '**/*.service.js',
   learnSteps: [
-    '1. Inizializzare progetto',
-    '2. Creare schema validazione',
-    '3. Implementare handler'
+    '1. Initialize project',
+    '2. Create validation schema',
+    '3. Implement handler'
   ],
   useCases: [
-    'Creare API REST',
-    'Gestire errori standardizzati'
+    'Create REST API',
+    'Handle standardized errors'
   ]
 });
 
-// Cerca skills
+// Search for skills
 const skills = await handleMcpRequest('suggest_skills', {
   currentKeywords: ['fastify', 'api'],
   domain: 'javascript'
 });
 
-// Salva contesto
+// Save context
 await handleMcpRequest('save_context_snapshot', {
-  summary: 'Refactoring completato 80%',
-  pendingTasks: ['Test integrazione', 'Deploy staging'],
-  learnings: ['Prisma richiede migration esplicite']
+  summary: 'Refactoring 80% complete',
+  pendingTasks: ['Integration testing', 'Deploy to staging'],
+  learnings: ['Prisma requires explicit migrations']
 });
 
-// Chiudi sessione
+// End session
 await handleMcpRequest('end_session', {
   sessionId: session.session_id
 });
 ```
 
-## Tools Disponibili
+## Available Tools
 
 ### Session Management
-| Tool | Descrizione |
+| Tool | Description |
 |------|-------------|
-| `start_session` | Inizia nuova sessione |
-| `resume_session` | Riprendi sessione esistente |
-| `end_session` | Chiudi sessione |
-| `list_sessions` | Lista sessioni con filtri |
+| `start_session` | Start new session |
+| `resume_session` | Resume existing session |
+| `end_session` | End session |
+| `list_sessions` | List sessions with filters |
 
 ### Skills Framework
-| Tool | Descrizione |
+| Tool | Description |
 |------|-------------|
-| `register_skill` | Registra skill (schema rigido) |
-| `apply_skill` | Trova e applica skill |
-| `suggest_skills` | Suggerisci skills |
+| `register_skill` | Register skill (rigid schema) |
+| `apply_skill` | Find and apply skill |
+| `suggest_skills` | Suggest skills |
 
 ### Context Management
-| Tool | Descrizione |
+| Tool | Description |
 |------|-------------|
-| `save_context_snapshot` | Salva snapshot |
-| `restore_context` | Recupera contesto |
-| `generate_session_summary` | Riassunto sessione |
+| `save_context_snapshot` | Save snapshot |
+| `restore_context` | Restore context |
+| `generate_session_summary` | Session summary |
 
 ### Node Management
-| Tool | Descrizione |
+| Tool | Description |
 |------|-------------|
-| `add_node` | Aggiungi nodo |
-| `search_nodes` | Cerca nodi (con confidence) |
-| `get_node_context` | Contesto nodo |
-| `link_nodes` | Collega nodi |
-| `update_node` | Aggiorna nodo |
-| `delete_node` | Elimina nodo |
+| `add_node` | Add node |
+| `search_nodes` | Search nodes (with confidence) |
+| `get_node_context` | Node context |
+| `link_nodes` | Link nodes |
+| `update_node` | Update node |
+| `delete_node` | Delete node |
 
 ### Reports
-| Tool | Descrizione |
+| Tool | Description |
 |------|-------------|
-| `get_memory_report` | Report JSON/HTML |
-| `suggest_nodes` | Suggerisci nodi |
+| `get_memory_report` | JSON/HTML report |
+| `suggest_nodes` | Suggest nodes |
 
 ## Node Types
 
 | Type | Priority | Use Case |
 |------|----------|----------|
 | `skill` | ⭐⭐⭐ | Knowledge skill |
-| `error` | ⭐⭐⭐ | Errore risolto |
+| `error` | ⭐⭐⭐ | Resolved error |
 | `operation` | ⭐⭐ | How-to |
-| `convention` | ⭐⭐ | Regole naming |
-| `edge_case` | ⭐⭐ | Caso limite |
+| `convention` | ⭐⭐ | Naming rules |
+| `edge_case` | ⭐⭐ | Edge case |
 | `pattern` | ⭐ | Design pattern |
-| `task` | ⭐ | Task completato |
-| `generic` | ⭐ | Nodo generico |
+| `task` | ⭐ | Completed task |
+| `generic` | ⭐ | Generic node |
 
 ## Confidence Scoring
 
-Il sistema calcola un **confidence score (0.0-1.0)** per ogni risultato basato su:
+The system calculates a **confidence score (0.0-1.0)** for each result based on:
 
 - **BM25 Score** (35%) - Full-text search ranking
-- **Keyword Match** (25%) - Sovrapposizione keywords
-- **Recency Bonus** (10%) - Nodi recenti preferiti
-- **Type Score** (15%) - Skills/errors più importanti
-- **Weight** (15%) - Peso manuale
+- **Keyword Match** (25%) - Keywords overlap
+- **Recency Bonus** (10%) - Recent nodes preferred
+- **Type Score** (15%) - Skills/errors are more important
+- **Weight** (15%) - Manual weight
 
-## Schema Skill Rigido
+## Rigid Skill Schema
 
 ```json
 {
-  "name": "Nome Skill",
+  "name": "Skill Name",
   "framework": "fastify|react|prisma|...",
   "language": "javascript|typescript|python|...",
   "filePattern": "**/*.service.js",
-  "learnSteps": ["Passo 1", "Passo 2"],
-  "useCases": ["Caso 1", "Caso 2"],
-  "implementation": "// Codice...",
+  "learnSteps": ["Step 1", "Step 2"],
+  "useCases": ["Case 1", "Case 2"],
+  "implementation": "// Code...",
   "examples": ["file1.js"],
-  "prerequisites": ["Prerequisito 1"]
+  "prerequisites": ["Prerequisite 1"]
 }
 ```
 
-## Installazione
+## Installation
 
 ```bash
 npm install neural-memory
@@ -202,7 +206,7 @@ npm install neural-memory
 
 ## Database
 
-Il database unificato si trova in:
+The unified database is located at:
 ```
 data/neural-memory-unified.sqlite
 ```
