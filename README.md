@@ -55,11 +55,6 @@ Want to try it right away in your Cline? Add this configuration to your `cline_m
 - **No more separate databases per project!** All memory resides in a single SQLite database
 - Faster, simpler, zero configuration
 
-### 📋 Session Management
-- **Start/resume/end** work sessions
-- Automatic tracking: nodes created, skills learned, duration
-- Detailed context snapshot
-
 ### 🎓 Skills Framework
 - **Rigid schema** for registering skills with consistent structure
 - `framework`, `language`, `filePattern`, `learnSteps`, `useCases`
@@ -77,10 +72,11 @@ import { initialize, handleMcpRequest } from 'neural-memory';
 // Initialize the service
 await initialize();
 
-// Start a session
-const session = await handleMcpRequest('start_session', {
-  name: 'Refactoring API Gateway',
-  tags: ['backend', 'api']
+// Add a node
+await handleMcpRequest('add_node', {
+  keywords: ['fastify', 'middleware', 'auth'],
+  content: 'Implementation of JWT middleware...',
+  type: 'generic'
 });
 
 // Register a skill
@@ -113,51 +109,37 @@ await handleMcpRequest('save_context_snapshot', {
   learnings: ['Prisma requires explicit migrations']
 });
 
-// End session
-await handleMcpRequest('end_session', {
-  sessionId: session.session_id
+// Generate report
+const report = await handleMcpRequest('get_memory_report', {
+  format: 'html'
 });
 ```
 
 ## Available Tools
 
-### Session Management
+### Node Management
 | Tool | Description |
 |------|-------------|
-| `start_session` | Start new session |
-| `resume_session` | Resume existing session |
-| `end_session` | End session |
-| `list_sessions` | List sessions with filters |
+| `add_node` | Add node to memory |
+| `search_nodes` | Search nodes (with FTS5 + confidence) |
+| `delete_node` | Delete node |
 
 ### Skills Framework
 | Tool | Description |
 |------|-------------|
 | `register_skill` | Register skill (rigid schema) |
-| `apply_skill` | Find and apply skill |
 | `suggest_skills` | Suggest skills |
 
 ### Context Management
 | Tool | Description |
 |------|-------------|
-| `save_context_snapshot` | Save snapshot |
+| `save_context_snapshot` | Save context snapshot |
 | `restore_context` | Restore context |
-| `generate_session_summary` | Session summary |
-
-### Node Management
-| Tool | Description |
-|------|-------------|
-| `add_node` | Add node |
-| `search_nodes` | Search nodes (with confidence) |
-| `get_node_context` | Node context |
-| `link_nodes` | Link nodes |
-| `update_node` | Update node |
-| `delete_node` | Delete node |
 
 ### Reports
 | Tool | Description |
 |------|-------------|
 | `get_memory_report` | JSON/HTML report |
-| `suggest_nodes` | Suggest nodes |
 
 ## Node Types
 

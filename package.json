@@ -1,6 +1,6 @@
 {
   "name": "@drakonkat/neural-memory",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "MCP Server for Neural Memory - Unified memory with Session Management and Skills Framework",
   "main": "src/index.js",
   "bin": {
@@ -9,8 +9,7 @@
   "type": "module",
   "scripts": {
     "test": "node test/test-migration.js",
-    "test:manual": "node test/test-manual.js",
-    "test:mcp": "node test/test-mcp.js",
+    "test:manual": "node test/test-manual-v2.js",
     "start": "node src/index.js",
     "inspect": "cross-env DANGEROUSLY_OMIT_AUTH=true CLIENT_PORT=5689 SERVER_PORT=8512 npx @modelcontextprotocol/inspector node src/index.js",
     "inspect-publish": "cross-env DANGEROUSLY_OMIT_AUTH=true CLIENT_PORT=5689 SERVER_PORT=8512  npx @modelcontextprotocol/inspector npx -y @drakonkat/neural-memory@latest"

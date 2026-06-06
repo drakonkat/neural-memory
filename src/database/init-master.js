@@ -74,30 +74,8 @@ async function initMasterDb() {
   return { sequelize: masterSequelize, Project };
 }
 
-/**
- * Ottieni il database master
- */
-async function getMasterDb() {
-  if (!masterSequelize) {
-    models = await initMasterDb();
-  }
-  return models;
-}
-
-/**
- * Chiudi connessione master
- */
-async function closeMasterDb() {
-  if (masterSequelize) {
-    await masterSequelize.close();
-    masterSequelize = null;
-    models = null;
-  }
-}
 
 export {
   initMasterDb,
-  getMasterDb,
-  closeMasterDb,
   MASTER_DB_PATH
 };

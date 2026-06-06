@@ -59,18 +59,6 @@ function getConnection() {
   connections.set(dbKey, sequelize);
   return sequelize;
 }
-
-/**
- * Ottiene la connessione per un projectId (legacy - reindirizza a unificato)
- * @param {string} projectId - ID del progetto (ignorato in v2.0)
- * @returns {Sequelize} - Istanza Sequelize unificata
- * @deprecated Usare getConnection() direttamente
- */
-function getConnectionForProject(projectId) {
-  console.warn('[Connection] getConnectionForProject è deprecato in v2.0. Usa getConnection()');
-  return getConnection();
-}
-
 /**
  * Chiude la connessione
  */
@@ -83,40 +71,13 @@ async function closeConnection() {
   }
 }
 
-/**
- * Chiude tutte le connessioni
- */
-async function closeAllConnections() {
-  for (const [key, sequelize] of connections) {
-    await sequelize.close();
-  }
-  connections.clear();
-}
 
-/**
- * Verifica se una connessione esiste
- * @returns {boolean}
- */
-function hasConnection() {
-  return connections.has('unified');
-}
 
-/**
- * Ottiene il percorso del DB unificato
- * @returns {string}
- */
-function getUnifiedDbPath() {
-  return path.join(DATA_DIR, UNIFIED_DB_NAME);
-}
 
 export {
   getConnection,
-  getConnectionForProject,
   closeConnection,
-  closeAllConnections,
-  hasConnection,
   initDataDir,
-  getUnifiedDbPath,
   DATA_DIR,
   UNIFIED_DB_NAME
 };

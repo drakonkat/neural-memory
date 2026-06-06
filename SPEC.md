@@ -63,49 +63,7 @@ Per full-text search ottimizzato.
 
 ## Tools MCP v2.0
 
-### Session Management
-
-#### `start_session`
-Inizia una nuova sessione di lavoro.
-```json
-{
-  "name": "refactoring API Gateway",
-  "description": "Refactoring completo del gateway",
-  "tags": ["backend", "api"],
-  "projectPath": "/path/to/project"
-}
-```
-
-#### `resume_session`
-Riprende una sessione esistente.
-```json
-{
-  "sessionId": "uuid-sessione"
-}
-```
-
-#### `end_session`
-Chiude sessione e genera statistiche.
-```json
-{
-  "sessionId": "uuid-sessione"
-}
-```
-
-#### `list_sessions`
-Lista sessioni con filtri.
-```json
-{
-  "limit": 20,
-  "includeEnded": false,
-  "tags": ["backend"],
-  "projectPath": "/path/to/project"
-}
-```
-
----
-
-### Skills Framework (Schema Rigido)
+### Node Management
 
 #### `register_skill`
 Registra skill con schema obbligatorio.
@@ -127,16 +85,6 @@ Registra skill con schema obbligatorio.
   "implementation": "// Codice di esempio...",
   "examples": ["auth.service.js", "user.service.js"],
   "prerequisites": ["Node.js basics", "SQL fundamentals"]
-}
-```
-
-#### `apply_skill`
-Trova e applica skill matching.
-```json
-{
-  "keywords": ["fastify", "crud", "api"],
-  "domain": "javascript",
-  "context": "Sto creando un microservizio per utenti"
 }
 ```
 
@@ -184,19 +132,13 @@ Salva snapshot contesto dettagliato.
 }
 ```
 
+**Nota:** `pendingTasks`, `keyDecisions`, `blockers`, `learnings`, e `nextSteps` devono essere array di `string[]`, non oggetti. La validazione Zod richiede stringhe semplici.
+
 #### `restore_context`
 Recupera contesto salvato.
 ```json
 {
   "snapshotId": "uuid-snapshot"
-}
-```
-
-#### `generate_session_summary`
-Genera riassunto sessione.
-```json
-{
-  "sessionId": "uuid-sessione"
 }
 ```
 
@@ -230,37 +172,6 @@ Cerca nodi con confidence scoring.
 }
 ```
 
-#### `get_node_context`
-Ottiene contesto nodo (breadcrumbs, figli, relazioni).
-```json
-{
-  "nodeId": "uuid-nodo",
-  "depth": 2
-}
-```
-
-#### `link_nodes`
-Crea collegamento tra nodi.
-```json
-{
-  "fromNodeId": "uuid-sorgente",
-  "toNodeId": "uuid-destinazione",
-  "linkType": "related",
-  "weight": 1.0
-}
-```
-
-#### `update_node`
-Aggiorna nodo esistente.
-```json
-{
-  "nodeId": "uuid-nodo",
-  "keywords": ["updated", "keywords"],
-  "content": "Nuovo contenuto...",
-  "weight": 2.0
-}
-```
-
 #### `delete_node`
 Elimina nodo.
 ```json
@@ -283,15 +194,6 @@ Genera report in formato JSON o HTML.
   "includeStats": true,
   "includeRecentWork": true,
   "includeTopSkills": true
-}
-```
-
-#### `suggest_nodes`
-Suggerisce nodi rilevanti.
-```json
-{
-  "currentKeywords": ["api", "validation"],
-  "maxResults": 5
 }
 ```
 

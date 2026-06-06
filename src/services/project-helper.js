@@ -54,37 +54,8 @@ function writeLocalProjectId(projectPath, projectId) {
   }
 }
 
-/**
- * Ottiene il project_id dato un path, con fallback al master DB
- * @param {string} projectPath - Percorso del progetto
- * @param {Object} masterModels - Modelli del master DB con Project
- * @returns {Promise<string|null>} - Project ID o null
- */
-async function getProjectIdFromPath(projectPath, masterModels) {
-  // 1. Prova prima dal file locale
-  const localId = readLocalProjectId(projectPath);
-  if (localId) {
-    return localId;
-  }
-
-  // 2. Fallback: cerca nel master DB
-  if (masterModels) {
-    const project = await masterModels.Project.findOne({
-      where: { path: projectPath }
-    });
-    if (project) {
-      // Sync locale per future chiamate
-      writeLocalProjectId(projectPath, project.id);
-      return project.id;
-    }
-  }
-
-  return null;
-}
-
 export {
   PROJECT_ID_FILENAME,
   readLocalProjectId,
-  writeLocalProjectId,
-  getProjectIdFromPath
+  writeLocalProjectId
 };

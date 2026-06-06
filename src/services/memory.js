@@ -1,15 +1,10 @@
 /**
- * Memory Service v2.0
+ * Memory Service v2.0 - Minimal API
  * Logica di business per la gestione della memoria neurale unificata
- * 
- * CAMBIAMENTI v2.0:
- * - DB unificato (nessun projectId)
- * - Session management
- * - Skills con schema rigido
- * - Context compression
+ *
+ * 8 funzioni essenziali: addNode, searchNodes, deleteNode, registerSkill, suggestSkills, saveContextSnapshot, restoreContext, getMemoryReport
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import { getConnection, initDataDir } from '../database/connection.js';
 import { initModels } from '../database/models/index.js';
 import { runMigrations } from '../database/migrator.js';
@@ -19,8 +14,6 @@ class MemoryService {
         // Cache del modello (unico DB)
         this.modelsCache = null;
         this.initialized = false;
-        // Sessione attiva corrente
-        this.activeSessionId = null;
     }
 
     /**
@@ -58,236 +51,6 @@ class MemoryService {
         return this.modelsCache;
     }
 
-    /**
-     * Imposta la sessione attiva
-     * @param {string|null} sessionId
-     */
-    setActiveSession(sessionId) {
-        this.activeSessionId = sessionId;
-    }
-
-    /**
-     * Ottiene la sessione attiva corrente
-     * @returns {string|null}
-     */
-    getActiveSession() {
-        return this.activeSessionId;
-    }
-
-    // ==================== SESSION MANAGEMENT ====================
-
-    /**
-     * Inizia una nuova sessione di lavoro
-     * @param {Object} params
-     * @returns {Object} - { session_id, name, started_at, success }
-     */
-    async startSession({
-        name,
-        description = '',
-        tags = [],
-        projectPath = null,
-        initialContext = {}
-    }) {
-        await this.ensureInitialized();
-        const { Session } = await this.getModels();
-
-        // Chiudi sessioni attive precedenti
-        await Session.update(
-            { isActive: false, endedAt: new Date() },
-            { where: { isActive: true } }
-        );
-
-        // Crea nuova sessione
-        const session = await Session.create({
-            name,
-            description,
-            tags,
-            projectPath,
-            context: initialContext,
-            isActive: true,
-            stats: {
-                nodesCreated: 0,
-                skillsRegistered: 0,
-                skillsUsed: 0,
-                durationMinutes: 0
-            }
-        });
-
-        this.activeSessionId = session.id;
-
-        return {
-            session_id: session.id,
-            name: session.name,
-            description: session.description,
-            tags: session.tags,
-            started_at: session.startedAt,
-            is_active: session.isActive,
-            success: true
-        };
-    }
-
-    /**
-     * Riprende una sessione esistente
-     * @param {string} sessionId
-     * @returns {Object}
-     */
-    async resumeSession(sessionId) {
-        await this.ensureInitialized();
-        const { Session, Node } = await this.getModels();
-
-        const session = await Session.findByPk(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-
-        // Chiudi altre sessioni attive
-        await Session.update(
-            { isActive: false, endedAt: new Date() },
-            { where: { isActive: true } }
-        );
-
-        // Riattiva questa sessione
-        await session.update({ isActive: true, endedAt: null });
-
-        // Conta nodi creati
-        const nodeCount = await Node.count({ where: { sessionId } });
-
-        // Recupera ultimi nodi
-        const recentNodes = await Node.findAll({
-            where: { sessionId },
-            order: [['created_at', 'DESC']],
-            limit: 10
-        });
-
-        this.activeSessionId = session.id;
-
-        return {
-            session_id: session.id,
-            name: session.name,
-            description: session.description,
-            tags: session.tags,
-            started_at: session.startedAt,
-            ended_at: session.endedAt,
-            is_active: session.isActive,
-            context: session.context,
-            nodes_created: nodeCount,
-            recent_nodes: recentNodes.map(n => ({
-                id: n.id,
-                type: n.type,
-                keywords: n.keywords,
-                content_preview: n.content?.substring(0, 100)
-            })),
-            success: true
-        };
-    }
-
-    /**
-     * Chiude la sessione attuale
-     * @param {string} sessionId
-     * @returns {Object}
-     */
-    async endSession(sessionId) {
-        await this.ensureInitialized();
-        const { Session, Node } = await this.getModels();
-
-        const session = await Session.findByPk(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-
-        // Calcola statistiche finali
-        const nodeCount = await Node.count({ where: { sessionId } });
-        const skillsCount = await Node.count({ 
-            where: { sessionId, type: 'skill' } 
-        });
-
-        // Calcola durata
-        const startTime = new Date(session.startedAt).getTime();
-        const endTime = Date.now();
-        const durationMinutes = Math.round((endTime - startTime) / 60000);
-
-        // Aggiorna sessione
-        await session.update({
-            isActive: false,
-            endedAt: new Date(),
-            stats: {
-                nodesCreated: nodeCount,
-                skillsRegistered: skillsCount,
-                skillsUsed: session.stats?.skillsUsed || 0,
-                durationMinutes
-            }
-        });
-
-        if (this.activeSessionId === sessionId) {
-            this.activeSessionId = null;
-        }
-
-        return {
-            session_id: session.id,
-            name: session.name,
-            stats: {
-                nodes_created: nodeCount,
-                skills_registered: skillsCount,
-                skills_used: session.stats?.skillsUsed || 0,
-                duration_minutes: durationMinutes
-            },
-            ended_at: session.endedAt,
-            success: true
-        };
-    }
-
-    /**
-     * Lista sessioni con filtri
-     * @param {Object} params
-     * @returns {Array}
-     */
-    async listSessions(params = {}) {
-        const {
-            limit = 20,
-            includeEnded = false,
-            tags = [],
-            projectPath = null
-        } = params;
-        await this.ensureInitialized();
-        const { Session } = await this.getModels();
-
-        const where = {};
-        
-        if (!includeEnded) {
-            where.isActive = true;
-        }
-        
-        if (projectPath) {
-            where.projectPath = projectPath;
-        }
-
-        const sessions = await Session.findAll({
-            where,
-            order: [['started_at', 'DESC']],
-            limit
-        });
-
-        // Filtra per tag se specificati
-        let results = sessions;
-        if (tags.length > 0) {
-            results = sessions.filter(s => {
-                const sessionTags = Array.isArray(s.tags) ? s.tags : [];
-                return tags.some(t => sessionTags.includes(t));
-            });
-        }
-
-        return results.map(s => ({
-            id: s.id,
-            name: s.name,
-            description: s.description,
-            tags: s.tags,
-            started_at: s.startedAt,
-            ended_at: s.endedAt,
-            is_active: s.isActive,
-            stats: s.stats
-        }));
-    }
-
     // ==================== NODE MANAGEMENT ====================
 
     /**
@@ -304,11 +67,7 @@ class MemoryService {
         metadata = {},
         weight = 1.0
     }) {
-        const models = await this.getModels();
-        const { Node, Session } = models;
-
-        // Usa sessione attiva se non specificata
-        const effectiveSessionId = sessionId || this.activeSessionId;
+        const { Node } = await this.getModels();
 
         // Calcola profondità
         let depth = 0;
@@ -321,7 +80,7 @@ class MemoryService {
 
         // Crea il nodo
         const node = await Node.create({
-            sessionId: effectiveSessionId,
+            sessionId,
             parentId,
             type,
             keywords,
@@ -334,13 +93,6 @@ class MemoryService {
 
         // Aggiorna FTS5
         await this.updateFTS5(node);
-
-        // Aggiorna statistiche sessione se presente
-        if (effectiveSessionId) {
-            await this.updateSessionStats(effectiveSessionId, {
-                increment: 'nodesCreated'
-            });
-        }
 
         return {
             node_id: node.id,
@@ -370,34 +122,6 @@ class MemoryService {
                 node.content || ''
             ]
         });
-    }
-
-    /**
-     * Aggiorna statistiche sessione
-     * @param {string} sessionId
-     * @param {Object} updates
-     */
-    async updateSessionStats(sessionId, updates) {
-        const { Session, Node } = await this.getModels();
-        
-        const session = await Session.findByPk(sessionId);
-        if (!session) return;
-
-        // Gestisce sia plain object che Sequelize instance
-        const sessionStats = session.stats;
-        const stats = (sessionStats && typeof sessionStats === 'object') 
-            ? { ...sessionStats } 
-            : {};
-
-        if (updates.increment === 'nodesCreated') {
-            stats.nodesCreated = (stats.nodesCreated || 0) + 1;
-        } else if (updates.increment === 'skillsRegistered') {
-            stats.skillsRegistered = (stats.skillsRegistered || 0) + 1;
-        } else if (updates.increment === 'skillsUsed') {
-            stats.skillsUsed = (stats.skillsUsed || 0) + 1;
-        }
-
-        await session.update({ stats });
     }
 
     /**
@@ -545,168 +269,6 @@ class MemoryService {
     }
 
     /**
-     * Ottiene contesto di un nodo
-     * @param {Object} params
-     * @returns {Object}
-     */
-    async getNodeContext({ nodeId, depth = 1 }) {
-        const { Node, Link } = await this.getModels();
-
-        const node = await Node.findByPk(nodeId);
-        if (!node) {
-            throw new Error('Node not found');
-        }
-
-        const breadcrumbs = await this.getBreadcrumbs(nodeId);
-        const children = await Node.findAll({
-            where: { parentId: nodeId },
-            order: [['created_at', 'DESC']]
-        });
-
-        const outgoingLinks = await Link.findAll({
-            where: { fromNodeId: nodeId }
-        });
-
-        const targetIds = outgoingLinks.map(l => l.toNodeId);
-        const targetNodes = targetIds.length > 0
-            ? await Node.findAll({ where: { id: targetIds } })
-            : [];
-        const nodeMap = new Map(targetNodes.map(n => [n.id, n]));
-
-        let grandchildren = [];
-        if (depth > 1 && children.length > 0) {
-            const childIds = children.map(c => c.id);
-            grandchildren = await Node.findAll({
-                where: { parentId: childIds },
-                limit: 20,
-                order: [['created_at', 'DESC']]
-            });
-        }
-
-        return {
-            node: {
-                id: node.id,
-                type: node.type,
-                keywords: node.keywords,
-                content: node.content,
-                metadata: node.metadata,
-                depth: node.depth,
-                session_id: node.sessionId,
-                weight: node.weight,
-                created_at: node.created_at
-            },
-            breadcrumbs,
-            children: children.map(c => ({
-                id: c.id,
-                type: c.type,
-                keywords: c.keywords,
-                content: c.content?.substring(0, 200),
-                depth: c.depth
-            })),
-            grandchildren: grandchildren.map(c => ({
-                id: c.id,
-                type: c.type,
-                keywords: c.keywords,
-                content: c.content?.substring(0, 100),
-                depth: c.depth
-            })),
-            related: outgoingLinks.map(l => ({
-                node_id: l.toNodeId,
-                link_type: l.linkType,
-                weight: l.weight,
-                node: nodeMap.has(l.toNodeId) ? {
-                    type: nodeMap.get(l.toNodeId).type,
-                    keywords: nodeMap.get(l.toNodeId).keywords,
-                    content: nodeMap.get(l.toNodeId).content?.substring(0, 100)
-                } : null
-            }))
-        };
-    }
-
-    /**
-     * Ottiene breadcrumbs per un nodo
-     * @param {string} nodeId
-     * @returns {Array}
-     */
-    async getBreadcrumbs(nodeId) {
-        const { Node } = await this.getModels();
-        const breadcrumbs = [];
-        let currentId = nodeId;
-        const visited = new Set();
-
-        while (currentId && !visited.has(currentId)) {
-            visited.add(currentId);
-            const node = await Node.findByPk(currentId);
-            if (!node) break;
-
-            breadcrumbs.unshift({
-                id: node.id,
-                type: node.type,
-                keywords: node.keywords
-            });
-
-            currentId = node.parentId;
-        }
-
-        return breadcrumbs;
-    }
-
-    /**
-     * Collega due nodi
-     * @param {Object} params
-     * @returns {Object}
-     */
-    async linkNodes({ fromNodeId, toNodeId, linkType = 'related', weight = 1.0 }) {
-        const { Link } = await this.getModels();
-
-        const [link, created] = await Link.findOrCreate({
-            where: { fromNodeId, toNodeId },
-            defaults: { linkType, weight }
-        });
-
-        if (!created) {
-            await link.update({ linkType, weight });
-        }
-
-        return {
-            link_id: link.id,
-            link_type: link.linkType,
-            weight: link.weight,
-            created: !created
-        };
-    }
-
-    /**
-     * Aggiorna un nodo
-     * @param {Object} params
-     * @returns {Object}
-     */
-    async updateNode({ nodeId, keywords, content, metadata, weight }) {
-        const { Node } = await this.getModels();
-
-        const node = await Node.findByPk(nodeId);
-        if (!node) {
-            throw new Error('Node not found');
-        }
-
-        const updates = {};
-        if (keywords !== undefined) {
-            updates.keywords = keywords;
-            updates.keywordCount = keywords.length;
-        }
-        if (content !== undefined) updates.content = content;
-        if (metadata !== undefined) updates.metadata = metadata;
-        if (weight !== undefined) updates.weight = weight;
-
-        await node.update(updates);
-
-        return {
-            node_id: node.id,
-            updated: true
-        };
-    }
-
-    /**
      * Elimina un nodo
      * @param {Object} params
      */
@@ -796,10 +358,8 @@ class MemoryService {
             usageCount: 0
         };
 
-        const sessionId = this.activeSessionId;
-
         const node = await Node.create({
-            sessionId,
+            sessionId: null,
             type: 'skill',
             keywords: allKeywords,
             content: structuredContent,
@@ -809,12 +369,6 @@ class MemoryService {
         });
 
         await this.updateFTS5(node);
-
-        if (sessionId) {
-            await this.updateSessionStats(sessionId, {
-                increment: 'skillsRegistered'
-            });
-        }
 
         return {
             skill_id: node.id,
@@ -826,95 +380,6 @@ class MemoryService {
             use_cases: useCases,
             confidence: 0.5,
             success: true
-        };
-    }
-
-    /**
-     * Applica/suggerisci skill basata su keywords
-     * @param {Object} params
-     * @returns {Object}
-     */
-    async applySkill({ keywords = [], context = '', domain = null }) {
-        // Cerca skills matching
-        const results = await this.searchNodes({
-            keywords,
-            maxResults: 5,
-            minConfidence: 0.3,
-            type: 'skill'
-        });
-
-        if (results.length === 0) {
-            return {
-                matched: false,
-                message: 'Nessuna skill trovata per le keywords specificate',
-                suggestions: []
-            };
-        }
-
-        // Filtra per domain se specificato
-        let skills = results;
-        if (domain) {
-            skills = results.filter(r => {
-                const meta = r.metadata || {};
-                return meta.language?.toLowerCase() === domain.toLowerCase() ||
-                       meta.framework?.toLowerCase().includes(domain.toLowerCase());
-            });
-        }
-
-        // Recupera dettagli skill
-        const { Node } = await this.getModels();
-        const detailedSkills = await Promise.all(
-            skills.slice(0, 3).map(async (r) => {
-                const node = await Node.findByPk(r.node_id);
-                return {
-                    skill_id: node.id,
-                    name: node.keywords?.[0] || node.content?.split('\n')[0],
-                    keywords: node.keywords,
-                    framework: node.metadata?.framework,
-                    language: node.metadata?.language,
-                    file_pattern: node.metadata?.filePattern,
-                    learn_steps: node.metadata?.learnSteps || [],
-                    implementation: node.metadata?.implementation,
-                    confidence: r.confidence
-                };
-            })
-        );
-
-        const bestMatch = detailedSkills[0];
-
-        // Incrementa usage count
-        if (bestMatch) {
-            const node = await Node.findByPk(bestMatch.skill_id);
-            if (node) {
-                const meta = node.metadata || {};
-                await node.update({
-                    metadata: {
-                        ...meta,
-                        usageCount: (meta.usageCount || 0) + 1,
-                        lastUsedAt: new Date().toISOString()
-                    }
-                });
-            }
-
-            const sessionId = this.activeSessionId;
-            if (sessionId) {
-                await this.updateSessionStats(sessionId, {
-                    increment: 'skillsUsed'
-                });
-            }
-        }
-
-        return {
-            matched: true,
-            skill_id: bestMatch?.skill_id,
-            name: bestMatch?.name,
-            framework: bestMatch?.framework,
-            language: bestMatch?.language,
-            file_pattern: bestMatch?.file_pattern,
-            learn_steps: bestMatch?.learn_steps,
-            implementation: bestMatch?.implementation,
-            confidence: bestMatch?.confidence,
-            all_matches: detailedSkills
         };
     }
 
@@ -934,9 +399,11 @@ class MemoryService {
         let skills = results;
         if (domain) {
             skills = results.filter(r => {
-                const meta = r.metadata || {};
-                return meta.language?.toLowerCase() === domain.toLowerCase() ||
-                       meta.framework?.toLowerCase().includes(domain.toLowerCase());
+                // Note: searchNodes returns content which contains language info
+                const content = r.content || '';
+                const langLower = content.toLowerCase();
+                return langLower.includes(`language: ${domain.toLowerCase()}`) ||
+                       langLower.includes(`framework: ${domain.toLowerCase()}`);
             });
         }
 
@@ -961,7 +428,6 @@ class MemoryService {
      * @returns {Object}
      */
     async saveContextSnapshot({
-        sessionId,
         summary = '',
         workDone = {},
         pendingTasks = [],
@@ -971,11 +437,6 @@ class MemoryService {
         nextSteps = []
     }) {
         const { Node } = await this.getModels();
-        
-        const effectiveSessionId = sessionId || this.activeSessionId;
-        if (!effectiveSessionId) {
-            throw new Error('Nessuna sessione attiva');
-        }
 
         const content = JSON.stringify({
             summary,
@@ -989,9 +450,9 @@ class MemoryService {
         }, null, 2);
 
         const node = await Node.create({
-            sessionId: effectiveSessionId,
+            sessionId: null,
             type: 'context_snapshot',
-            keywords: ['context-snapshot', 'summary', effectiveSessionId],
+            keywords: ['context-snapshot', 'summary'],
             content,
             metadata: {
                 summary,
@@ -1006,7 +467,7 @@ class MemoryService {
 
         return {
             snapshot_id: node.id,
-            session_id: effectiveSessionId,
+            session_id: null,
             summary,
             pending_tasks_count: pendingTasks.length,
             success: true
@@ -1045,75 +506,6 @@ class MemoryService {
         }
     }
 
-    /**
-     * Genera riassunto sessione
-     * @param {string} sessionId
-     * @returns {Object}
-     */
-    async generateSessionSummary(sessionId) {
-        const { Session, Node } = await this.getModels();
-
-        const session = await Session.findByPk(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-
-        const nodes = await Node.findAll({
-            where: { sessionId },
-            order: [['created_at', 'ASC']]
-        });
-
-        // Raggruppa per tipo
-        const types = {};
-        for (const node of nodes) {
-            if (!types[node.type]) {
-                types[node.type] = [];
-            }
-            types[node.type].push(node);
-        }
-
-        // Costruisci riassunto
-        const summaries = [];
-        summaries.push(`Sessione: ${session.name}`);
-        summaries.push(`Durata: ${session.stats?.durationMinutes || 0} minuti`);
-        summaries.push(`Nodi creati: ${nodes.length}`);
-        
-        if (types.task?.length) {
-            summaries.push(`Tasks completati: ${types.task.length}`);
-        }
-        if (types.skill?.length) {
-            summaries.push(`Skills apprese: ${types.skill.length}`);
-        }
-        if (types.error?.length) {
-            summaries.push(`Errori risolti: ${types.error.length}`);
-        }
-
-        // Extract pending tasks
-        const pendingTasks = nodes
-            .filter(n => n.type === 'context_snapshot')
-            .flatMap(n => {
-                try {
-                    const ctx = JSON.parse(n.content);
-                    return ctx.pendingTasks || [];
-                } catch {
-                    return [];
-                }
-            });
-
-        return {
-            session_id: sessionId,
-            name: session.name,
-            summary: summaries.join('\n'),
-            stats: session.stats,
-            types_summary: Object.keys(types).map(t => ({
-                type: t,
-                count: types[t].length
-            })),
-            pending_tasks: pendingTasks,
-            node_count: nodes.length
-        };
-    }
-
     // ==================== REPORTS ====================
 
     /**
@@ -1123,20 +515,18 @@ class MemoryService {
      */
     async getMemoryReport({
         format = 'json',
-        sessions = [],
         keywords = [],
         includeStats = true,
         includeRecentWork = true,
         includeTopSkills = true
     }) {
-        const { Session, Node } = await this.getModels();
+        const { Node } = await this.getModels();
 
         const report = {};
 
         if (includeStats) {
             const totalNodes = await Node.count();
-            const totalSessions = await Session.count();
-            
+
             const byType = await Node.findAll({
                 attributes: ['type'],
                 group: ['type']
@@ -1149,7 +539,6 @@ class MemoryService {
 
             report.stats = {
                 total_nodes: totalNodes,
-                total_sessions: totalSessions,
                 by_type: typeStats
             };
         }
@@ -1183,7 +572,7 @@ class MemoryService {
             }));
         }
 
-        if (sessions.length > 0 || keywords.length > 0) {
+        if (keywords.length > 0) {
             const searchResults = await this.searchNodes({
                 keywords,
                 maxResults: 50
@@ -1243,10 +632,6 @@ class MemoryService {
             <div class="stat-value">${report.stats?.total_nodes || 0}</div>
             <div class="stat-label">Nodi Totali</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-value">${report.stats?.total_sessions || 0}</div>
-            <div class="stat-label">Sessioni</div>
-        </div>
     </div>
     
     <h2>📈 Nodi per Tipo</h2>
@@ -1287,32 +672,6 @@ class MemoryService {
     </ul>
 </body>
 </html>`;
-    }
-
-    /**
-     * Suggerisce nodi rilevanti
-     * @param {Object} params
-     * @returns {Array}
-     */
-    async suggestNodes({ currentKeywords = [], maxResults = 5 }) {
-        const results = await this.searchNodes({
-            keywords: currentKeywords,
-            maxResults: maxResults * 2,
-            minConfidence: 0.2
-        });
-
-        return results.slice(0, maxResults).map(r => {
-            const nodeKeywords = this.parseKeywords(r.keywords);
-            return {
-                node_id: r.node_id,
-                type: r.type,
-                keywords: nodeKeywords,
-                reason: `Condivide ${nodeKeywords.filter(k =>
-                    currentKeywords.some(ck => ck.toLowerCase() === k.toLowerCase())
-                ).length} keyword(s)`,
-                confidence: r.confidence
-            };
-        });
     }
 }
 
